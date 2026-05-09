@@ -1,8 +1,7 @@
 /**
- * Step-engine for BYO-agent disputes. Extracts the per-turn validation, signing,
- * convergence detection, deadlock detection, and jury escalation from
- * orchestrator.ts in a form that can be invoked one turn at a time across
- * multiple HTTP requests.
+ * Step-engine for BYO-agent disputes. Persists state via dispute_store
+ * (memory-by-default, Redis-when-configured) so multi-request flows on
+ * Vercel cold-start instances actually work.
  */
 import { signDoc, docHash, verifySignedDoc } from "./sign.js";
 import { hash as hashOf } from "./canonical.js";
@@ -12,6 +11,7 @@ import {
   type DisputeState,
   type AgentRole,
   getDispute,
+  saveDispute,
 } from "./dispute_store.js";
 import type { MessageBody } from "./orchestrator.js";
 import type {
@@ -78,7 +78,6 @@ function isConverged(history: SignedMessage[]): { hash: string; state: DealState
   return null;
 }
 
-/** Validate a message body in the context of a dispute. Returns null if OK, else a rejection reason. */
 function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): string | null {
   const agent = state.agents[role];
   if (body.from_agent !== agent.did)
@@ -91,8 +90,7 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
   const missingParents = body.parent_refs.filter(
     (h) => !state.history.some((m) => docHash(m) === h),
   );
-  if (missingParents.length > 0)
-    return `parent_refs unknown: ${missingParents.join(", ")}`;
+  if (missingParents.length > 0) return `parent_refs unknown: ${missingParents.join(", ")}`;
   if (body.type === "Propose" || body.type === "CounterPropose") {
     const last = lastProposalUtility(state.history, agent.did);
     if (last !== undefined && body.payload.utility_for_self - last > 1e-9)
@@ -147,7 +145,7 @@ function advanceTurn(state: DisputeState): { advanced_round: boolean } {
   return { advanced_round: true };
 }
 
-async function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Promise<Bundle> {
+function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
   const bundleNoHash: Omit<Bundle, "root_hash"> = {
     type: "Bundle",
     scenario: state.scenario_id,
@@ -166,7 +164,10 @@ async function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Pro
   return bundle;
 }
 
-async function escalateAndFinalize(state: DisputeState, reason: string): Promise<StepEvent[]> {
+async function escalateAndFinalize(
+  state: DisputeState,
+  reason: string,
+): Promise<StepEvent[]> {
   const events: StepEvent[] = [{ kind: "escalation", reason }];
   const { votes, ruling } = await deliberate({
     agents: state.agents,
@@ -175,18 +176,17 @@ async function escalateAndFinalize(state: DisputeState, reason: string): Promise
   });
   state.ruling = { votes, ruling };
   events.push({ kind: "jury.ruled" });
-  const bundle = await buildBundle(state, { kind: "ruling", votes, ruling });
+  const bundle = buildBundle(state, { kind: "ruling", votes, ruling });
   events.push({ kind: "bundle.built", bundle });
   return events;
 }
 
-/** Apply a single accepted/rejected attempt for the role whose turn it currently is. */
-async function applyAttempt(
+function applyAttempt(
   state: DisputeState,
   role: AgentRole,
   body: MessageBody,
   attempt: number,
-): Promise<{ events: StepEvent[]; accepted: boolean }> {
+): { events: StepEvent[]; accepted: boolean } {
   const events: StepEvent[] = [];
   const reason = validateBody(state, role, body);
   if (reason) {
@@ -224,11 +224,10 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         rejection_feedback:
           state.pending_feedback.length > 0 ? [...state.pending_feedback] : undefined,
       });
-      const r = await applyAttempt(state, role, body, attempt);
+      const r = applyAttempt(state, role, body, attempt);
       events.push(...r.events);
       accepted = r.accepted;
     }
-    // If forfeited (2 rejections in a row), fall through to next role.
     const conv = isConverged(state.history);
     if (conv) {
       events.push({
@@ -236,7 +235,7 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         final_state: conv.state,
         accepted_msg_hash: conv.hash,
       });
-      const bundle = await buildBundle(state, {
+      const bundle = buildBundle(state, {
         kind: "converged",
         final_state: conv.state,
         accepted_msg_hash: conv.hash,
@@ -245,7 +244,8 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
       return events;
     }
     const adv = advanceTurn(state);
-    if (adv.advanced_round) events.push({ kind: "round.advanced", new_round: state.current_round });
+    if (adv.advanced_round)
+      events.push({ kind: "round.advanced", new_round: state.current_round });
     if (state.current_round > state.max_rounds) {
       const escalation = await escalateAndFinalize(state, "max_rounds_exhausted");
       events.push(...escalation);
@@ -255,14 +255,17 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
   return events;
 }
 
-/** Process an external submission for the role whose turn it currently is. Then drive
- *  any consecutive Claude turns. Returns the full timeline of events for the caller to render. */
+export type SubmitResult = {
+  events: StepEvent[];
+  state: ReturnType<typeof publicState>;
+};
+
 export async function submitExternalMessage(args: {
   dispute_id: string;
   role_token: string;
   body: MessageBody;
-}): Promise<{ events: StepEvent[]; state: ReturnType<typeof publicState> }> {
-  const state = getDispute(args.dispute_id);
+}): Promise<SubmitResult> {
+  const state = await getDispute(args.dispute_id);
   if (state.finalized) throw new Error("dispute is already finalized");
   const role = state.turn;
   if (state.controllers[role] !== "external")
@@ -273,9 +276,10 @@ export async function submitExternalMessage(args: {
     throw new Error("role_token mismatch — you are not authorized to act on this turn");
 
   const events: StepEvent[] = [];
-  const r = await applyAttempt(state, role, args.body, 1);
+  const r = applyAttempt(state, role, args.body, 1);
   events.push(...r.events);
   if (!r.accepted) {
+    await saveDispute(state);
     return { events, state: publicState(state) };
   }
   const conv = isConverged(state.history);
@@ -285,24 +289,37 @@ export async function submitExternalMessage(args: {
       final_state: conv.state,
       accepted_msg_hash: conv.hash,
     });
-    const bundle = await buildBundle(state, {
+    const bundle = buildBundle(state, {
       kind: "converged",
       final_state: conv.state,
       accepted_msg_hash: conv.hash,
     });
     events.push({ kind: "bundle.built", bundle });
+    await saveDispute(state);
     return { events, state: publicState(state) };
   }
   const adv = advanceTurn(state);
-  if (adv.advanced_round) events.push({ kind: "round.advanced", new_round: state.current_round });
+  if (adv.advanced_round)
+    events.push({ kind: "round.advanced", new_round: state.current_round });
   if (state.current_round > state.max_rounds) {
     const escalation = await escalateAndFinalize(state, "max_rounds_exhausted");
     events.push(...escalation);
+    await saveDispute(state);
     return { events, state: publicState(state) };
   }
-  // Drive any Claude turns that follow before yielding back to caller.
-  const claudeEvents = await advanceClaudeTurns(state);
-  events.push(...claudeEvents);
+  // Drive any Claude-controlled turns. We persist between each Claude turn
+  // so that an interrupted advance leaves a recoverable state in storage.
+  while (
+    !state.finalized &&
+    state.controllers[state.turn] === "claude" &&
+    state.current_round <= state.max_rounds
+  ) {
+    const claudeEvents = await advanceClaudeTurns(state);
+    events.push(...claudeEvents);
+    await saveDispute(state);
+    if (state.finalized) break;
+  }
+  await saveDispute(state);
   return { events, state: publicState(state) };
 }
 

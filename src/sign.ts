@@ -3,16 +3,20 @@ import { sign, verify, bytesToHexStr, hexStrToBytes, type Keypair } from "./cryp
 import { resolvePubKey } from "./did.js";
 import type { Proof, SignedDoc } from "./types.js";
 
-/** Build a Proof object: sign canonical bytes of `doc` (without proof) using `keypair`. */
+/** Build a Proof object: sign canonical bytes of `doc` (without proof) using `keypair`.
+ *  When `at` is provided, the proof.created timestamp is fixed to it — needed for
+ *  deterministic re-signing across restarts/reloads (otherwise each rehydration
+ *  produces different signatures and evidence hashes drift). */
 export function makeProof<T extends object>(
   doc: T,
   keypair: Keypair,
   did: string,
+  at?: string,
 ): Proof {
   const sigBytes = sign(canonicalBytes(doc), keypair.privateKey);
   return {
     type: "Ed25519Signature2020",
-    created: new Date().toISOString(),
+    created: at ?? new Date().toISOString(),
     verificationMethod: did,
     signature: bytesToHexStr(sigBytes),
   };
@@ -22,8 +26,9 @@ export function signDoc<T extends object>(
   doc: T,
   keypair: Keypair,
   did: string,
+  at?: string,
 ): SignedDoc<T> {
-  const proof = makeProof(doc, keypair, did);
+  const proof = makeProof(doc, keypair, did, at);
   return { ...doc, proof };
 }
 

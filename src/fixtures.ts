@@ -10,12 +10,18 @@ export type EvidencePool = {
 };
 
 /** Sign every EvidenceSeed in the scenario with the matching agent's key and
- *  index by evidence_id and content hash. Pure function over scenario+agents. */
-export function buildEvidencePool(agents: AgentBook, scenario: Scenario): EvidencePool {
+ *  index by evidence_id and content hash. Pure function over scenario+agents.
+ *  When `at` is provided (typically the dispute's created_at), the evidence
+ *  signing is deterministic across reloads — same canonical bytes, same hashes. */
+export function buildEvidencePool(
+  agents: AgentBook,
+  scenario: Scenario,
+  at?: string,
+): EvidencePool {
   const signed: SignedEvidence[] = [];
   const byEvidenceId = new Map<string, SignedEvidence>();
   const byHash = new Map<string, SignedEvidence>();
-  const now = new Date().toISOString();
+  const ts = at ?? new Date().toISOString();
 
   for (const seed of scenario.evidence) {
     const submitter = agents[seed.submitter];
@@ -26,9 +32,9 @@ export function buildEvidencePool(agents: AgentBook, scenario: Scenario): Eviden
       tier: seed.tier,
       title: seed.title,
       body: seed.body,
-      produced_at: now,
+      produced_at: ts,
     };
-    const signedEvidence = signDoc(evidence, submitter.keypair, submitter.did);
+    const signedEvidence = signDoc(evidence, submitter.keypair, submitter.did, ts);
     const h = docHash(signedEvidence);
     signed.push(signedEvidence);
     byEvidenceId.set(seed.evidence_id, signedEvidence);

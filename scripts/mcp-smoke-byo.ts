@@ -92,7 +92,7 @@ async function main() {
 
   // We bypass the role_token for atlas by using the in-memory store directly.
   const { getDispute } = await import("../src/dispute_store.js");
-  const state = getDispute(dispute_id);
+  const state = await getDispute(dispute_id);
   const atlas_token = state.role_tokens.atlas;
 
   console.log("    dispute_id:", dispute_id);

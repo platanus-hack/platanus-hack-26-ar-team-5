@@ -1,0 +1,209 @@
+/**
+ * Pluggable storage for dispute state. Two backends:
+ *
+ * - MemoryStorage: globalThis-backed Map, fast but per-process (loses state on
+ *   Vercel cold starts). Default when no Redis env is configured.
+ * - RedisStorage: Upstash Redis over REST (works on any serverless platform,
+ *   including Vercel free tier across cold starts and instances).
+ *
+ * Selected by environment: if either KV_REST_API_URL or UPSTASH_REDIS_REST_URL
+ * (and matching token) is set, Redis is used. Otherwise memory.
+ *
+ * Pacta only stores PRIVATE-KEY HEX for each agent (32 bytes); public keys and
+ * DIDs are re-derived on load. Scenario (huge) is never stored — only its id,
+ * resolved from the in-process registry.
+ */
+import { Redis } from "@upstash/redis";
+import * as ed from "@noble/ed25519";
+import { sha512 } from "@noble/hashes/sha2.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { deriveDid } from "./did.js";
+import { buildEvidencePool, type EvidencePool } from "./fixtures.js";
+import { getScenario, type Scenario } from "./scenarios/index.js";
+import type { AgentBook, AgentRole as IdentityRole } from "./agents.js";
+import type { Bundle, SignedMessage, SignedRuling, SignedVote } from "./types.js";
+
+ed.hashes.sha512 = sha512;
+
+export type AgentRole = "aria" | "atlas";
+
+export type StoredDispute = {
+  dispute_id: string;
+  scenario_id: string;
+  history: SignedMessage[];
+  controllers: Record<AgentRole, "external" | "claude">;
+  role_tokens: Record<AgentRole, string>;
+  claimed: Record<AgentRole, boolean>;
+  turn: AgentRole;
+  current_round: number;
+  max_rounds: number;
+  pending_feedback: string[];
+  finalized: { bundle: Bundle } | null;
+  ruling: { votes: SignedVote[]; ruling: SignedRuling } | null;
+  created_at: string;
+  /** Hex-encoded 32-byte Ed25519 private keys per role. Public keys + DIDs are
+   *  re-derived from these on load — never stored. */
+  agent_keys: { aria: string; atlas: string; tribunal: string };
+};
+
+/** Hydrated runtime view: the StoredDispute plus the reconstructed AgentBook,
+ *  EvidencePool, and Scenario reference. Created on each load by hydrate(). */
+export type LiveDispute = StoredDispute & {
+  scenario: Scenario;
+  agents: AgentBook;
+  evidence: EvidencePool;
+};
+
+export interface DisputeStorage {
+  get(id: string): Promise<StoredDispute | null>;
+  put(state: StoredDispute): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+
+class MemoryStorage implements DisputeStorage {
+  private map = new Map<string, StoredDispute>();
+  async get(id: string) {
+    return this.map.get(id) ?? null;
+  }
+  async put(state: StoredDispute) {
+    this.map.set(state.dispute_id, state);
+  }
+  async delete(id: string) {
+    this.map.delete(id);
+  }
+}
+
+class RedisStorage implements DisputeStorage {
+  constructor(private redis: Redis, private ttlSeconds = 60 * 60 * 6) {}
+  private key(id: string) {
+    return `pacta:dispute:${id}`;
+  }
+  async get(id: string): Promise<StoredDispute | null> {
+    const v = await this.redis.get(this.key(id));
+    if (v === null || v === undefined) return null;
+    // Upstash auto-deserializes JSON; if it didn't, fall back to parse.
+    if (typeof v === "string") {
+      try {
+        return JSON.parse(v) as StoredDispute;
+      } catch {
+        return null;
+      }
+    }
+    return v as StoredDispute;
+  }
+  async put(state: StoredDispute) {
+    await this.redis.set(this.key(state.dispute_id), JSON.stringify(state), {
+      ex: this.ttlSeconds,
+    });
+  }
+  async delete(id: string) {
+    await this.redis.del(this.key(id));
+  }
+}
+
+let _storage: DisputeStorage | null = null;
+export function getStorage(): DisputeStorage {
+  if (_storage) return _storage;
+  // Vercel KV exposes KV_REST_API_URL+KV_REST_API_TOKEN.
+  // Manual Upstash exposes UPSTASH_REDIS_REST_URL+UPSTASH_REDIS_REST_TOKEN.
+  const url =
+    process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token =
+    process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    _storage = new RedisStorage(new Redis({ url, token }));
+  } else {
+    _storage = new MemoryStorage();
+  }
+  return _storage;
+}
+
+export function isPersistent(): boolean {
+  return getStorage() instanceof RedisStorage;
+}
+
+/** Generate a fresh AgentBook (3 keypairs) and return both the live AgentBook
+ *  and the hex private keys to persist. */
+export function freshAgents(): {
+  agents: AgentBook;
+  agent_keys: { aria: string; atlas: string; tribunal: string };
+} {
+  const roles: IdentityRole[] = ["aria", "atlas", "tribunal"];
+  const friendlyNames: Record<IdentityRole, string> = {
+    aria: "Aria",
+    atlas: "Atlas",
+    tribunal: "Tribunal",
+  };
+  const agents = {} as AgentBook;
+  const keys = {} as Record<IdentityRole, string>;
+  for (const role of roles) {
+    const privateKey = ed.utils.randomSecretKey();
+    const publicKey = ed.getPublicKey(privateKey);
+    const did = deriveDid(publicKey);
+    agents[role] = {
+      role,
+      name: friendlyNames[role],
+      did,
+      keypair: { privateKey, publicKey },
+    };
+    keys[role] = bytesToHex(privateKey);
+  }
+  return { agents, agent_keys: keys };
+}
+
+/** Rehydrate an AgentBook from stored hex private keys. */
+export function rehydrateAgents(stored: StoredDispute["agent_keys"]): AgentBook {
+  const friendlyNames: Record<IdentityRole, string> = {
+    aria: "Aria",
+    atlas: "Atlas",
+    tribunal: "Tribunal",
+  };
+  const agents = {} as AgentBook;
+  for (const role of ["aria", "atlas", "tribunal"] as IdentityRole[]) {
+    const privateKey = hexToBytes(stored[role]);
+    const publicKey = ed.getPublicKey(privateKey);
+    const did = deriveDid(publicKey);
+    agents[role] = {
+      role,
+      name: friendlyNames[role],
+      did,
+      keypair: { privateKey, publicKey },
+    };
+  }
+  return agents;
+}
+
+/** Load a full LiveDispute from storage: rehydrates agents and rebuilds the
+ *  evidence pool against the same private keys (stable signatures across loads). */
+export async function loadDispute(dispute_id: string): Promise<LiveDispute | null> {
+  const stored = await getStorage().get(dispute_id);
+  if (!stored) return null;
+  const scenario = getScenario(stored.scenario_id);
+  const agents = rehydrateAgents(stored.agent_keys);
+  // Use the dispute's created_at as the evidence signing timestamp so the
+  // evidence pool is byte-identical (and hash-stable) across reloads.
+  const evidence = buildEvidencePool(agents, scenario, stored.created_at);
+  return { ...stored, scenario, agents, evidence };
+}
+
+/** Save a LiveDispute back to storage. The scenario/agents/evidence are NOT
+ *  persisted — they're recomputed on next load. */
+export async function saveDispute(live: LiveDispute): Promise<void> {
+  const stored: StoredDispute = {
+    dispute_id: live.dispute_id,
+    scenario_id: live.scenario_id,
+    history: live.history,
+    controllers: live.controllers,
+    role_tokens: live.role_tokens,
+    claimed: live.claimed,
+    turn: live.turn,
+    current_round: live.current_round,
+    max_rounds: live.max_rounds,
+    pending_feedback: live.pending_feedback,
+    finalized: live.finalized,
+    ruling: live.ruling,
+    created_at: live.created_at,
+    agent_keys: live.agent_keys,
+  };
+  await getStorage().put(stored);
+}

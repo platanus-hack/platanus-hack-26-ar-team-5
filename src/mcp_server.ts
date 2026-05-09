@@ -211,7 +211,7 @@ export function buildPactaMcpServer(): McpServer {
     },
     async ({ scenario_id, your_role, counterparty_external }) => {
       try {
-        const result = openDispute({
+        const result = await openDispute({
           scenario_id,
           your_role,
           counterparty_external: counterparty_external === true,
@@ -259,7 +259,7 @@ export function buildPactaMcpServer(): McpServer {
     },
     async ({ dispute_id, role }) => {
       try {
-        const r = joinDispute({ dispute_id, role });
+        const r = await joinDispute({ dispute_id, role });
         return {
           content: [
             {
@@ -374,7 +374,7 @@ export function buildPactaMcpServer(): McpServer {
     },
     async ({ dispute_id }) => {
       try {
-        const dump = dumpDispute(dispute_id);
+        const dump = await dumpDispute(dispute_id);
         return {
           content: [
             {

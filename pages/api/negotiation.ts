@@ -1,9 +1,9 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { runPacta, listScenarios } from "../src/pacta.js";
+import type { NextApiRequest, NextApiResponse } from "next";
+import { runPacta, listScenarios } from "../../src/pacta";
 
 export const config = { maxDuration: 60 };
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const url = new URL(req.url ?? "/", "http://localhost");
   const body = (req.body ?? {}) as { mock?: boolean; scenario?: string };
 
@@ -29,6 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("X-Pacta-Mode", useMock ? "mock" : "live");
   res.setHeader("X-Pacta-Scenario", scenarioParam ?? "ai-overrun");
+  // @ts-expect-error: NextApiResponse extends ServerResponse but flushHeaders is not in the type
   res.flushHeaders?.();
 
   const write = (obj: unknown) => {

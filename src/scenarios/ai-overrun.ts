@@ -1,5 +1,5 @@
-import { docHash } from "../sign.js";
-import type { Scenario, ScenarioMockStep } from "./types.js";
+import { docHash } from "../sign";
+import type { Scenario, ScenarioMockStep } from "./types";
 
 const ARIA_SYSTEM = `You are Aria, the FinOps + Platform agent at a Series-B SaaS company (the Customer).
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bootAgents } from "../src/agents.js";
-import { buildEvidencePool } from "../src/fixtures.js";
-import { aiOverrun } from "../src/scenarios/ai-overrun.js";
-import { runNegotiation, type LLMDriver, type MessageBody } from "../src/orchestrator.js";
-import { docHash, verifySignedDoc } from "../src/sign.js";
-import type { SignedMessage } from "../src/types.js";
+import { bootAgents } from "../src/agents";
+import { buildEvidencePool } from "../src/fixtures";
+import { aiOverrun } from "../src/scenarios/ai-overrun";
+import { runNegotiation, type LLMDriver, type MessageBody } from "../src/orchestrator";
+import { docHash, verifySignedDoc } from "../src/sign";
+import type { SignedMessage } from "../src/types";
 
 function ariaProposeBody(args: {
   ariaDid: string;

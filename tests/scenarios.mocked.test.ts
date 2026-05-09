@@ -5,9 +5,9 @@
  * the bundle root_hash matches the canonical recomputation.
  */
 import { describe, expect, it } from "vitest";
-import { hash as hashOf } from "../src/canonical.js";
-import { docHash, verifySignedDoc } from "../src/sign.js";
-import { runPacta, listScenarios } from "../src/pacta.js";
+import { hash as hashOf } from "../src/canonical";
+import { docHash, verifySignedDoc } from "../src/sign";
+import { runPacta, listScenarios } from "../src/pacta";
 
 // Scenarios that converge bilaterally in mock mode are tested here.
 // Deadlock scenarios (mock script designed to escalate to jury) are exercised

@@ -1,6 +1,6 @@
-import type { LLMDriver, MessageBody } from "../orchestrator.js";
-import type { AgentBook } from "../agents.js";
-import type { EvidenceTier, SignedMessage } from "../types.js";
+import type { LLMDriver, MessageBody } from "../orchestrator";
+import type { AgentBook } from "../agents";
+import type { EvidenceTier, SignedMessage } from "../types";
 
 /** A seed for one piece of pre-loaded evidence in a scenario. */
 export type EvidenceSeed = {

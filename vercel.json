@@ -1,11 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
   "functions": {
-    "api/negotiation.ts": {
-      "maxDuration": 60
-    }
-  },
-  "rewrites": [
-    { "source": "/", "destination": "/api/health" }
-  ]
+    "api/mcp.ts": { "maxDuration": 60 },
+    "api/negotiation.ts": { "maxDuration": 60 }
+  }
 }

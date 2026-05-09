@@ -23,10 +23,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import pc from "picocolors";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { loadEnv } from "../src/env.js";
-import { TOOLS } from "../src/prompts.js";
-import { getScenario } from "../src/scenarios/index.js";
-import { MODELS } from "../src/anthropic.js";
+import { loadEnv } from "../src/env";
+import { TOOLS } from "../src/prompts";
+import { getScenario } from "../src/scenarios/index";
+import { MODELS } from "../src/anthropic";
 
 loadEnv();
 

@@ -12,7 +12,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { buildPactaMcpServer } from "../src/mcp_server.js";
+import { buildPactaMcpServer } from "../src/mcp_server";
 
 type CallResult = { isError?: boolean; content?: Array<{ type: string; text?: string }> };
 

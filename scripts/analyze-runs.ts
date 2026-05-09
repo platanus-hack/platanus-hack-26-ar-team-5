@@ -4,7 +4,7 @@
  * a set of bundle JSON paths. Useful for assessing stability of jury splits.
  */
 import { readFileSync } from "node:fs";
-import type { Bundle, SignedVote } from "../src/types.js";
+import type { Bundle, SignedVote } from "../src/types";
 
 const paths = process.argv.slice(2);
 if (paths.length === 0) {

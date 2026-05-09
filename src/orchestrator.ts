@@ -1,13 +1,13 @@
-import type { AgentBook, AgentRole } from "./agents.js";
-import type { EvidencePool } from "./fixtures.js";
-import { signDoc, docHash, verifySignedDoc } from "./sign.js";
-import { hash as hashOf } from "./canonical.js";
+import type { AgentBook, AgentRole } from "./agents";
+import type { EvidencePool } from "./fixtures";
+import { signDoc, docHash, verifySignedDoc } from "./sign";
+import { hash as hashOf } from "./canonical";
 import {
   resolveMsgRef,
   resolveEvidenceRef,
   listValidMsgRefs,
   listValidEvidenceRefs,
-} from "./refs.js";
+} from "./refs";
 import type {
   AcceptMsg,
   CounterProposeMsg,
@@ -17,7 +17,7 @@ import type {
   RevealMsg,
   SignedEvidence,
   SignedMessage,
-} from "./types.js";
+} from "./types";
 
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
 

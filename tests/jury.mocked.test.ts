@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { bootAgents } from "../src/agents.js";
-import { buildEvidencePool } from "../src/fixtures.js";
-import { docHash, verifySignedDoc } from "../src/sign.js";
+import { bootAgents } from "../src/agents";
+import { buildEvidencePool } from "../src/fixtures";
+import { docHash, verifySignedDoc } from "../src/sign";
 
 // Mock Anthropic SDK to avoid live calls in this test.
 vi.mock("../src/anthropic.js", () => {

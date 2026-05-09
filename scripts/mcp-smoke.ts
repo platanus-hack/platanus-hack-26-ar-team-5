@@ -9,7 +9,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { buildPactaMcpServer } from "../src/mcp_server.js";
+import { buildPactaMcpServer } from "../src/mcp_server";
 
 async function main() {
   const server = buildPactaMcpServer();

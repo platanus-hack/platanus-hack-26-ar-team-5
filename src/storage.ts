@@ -17,20 +17,20 @@ import { Redis } from "@upstash/redis";
 import * as ed from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-import { deriveDid } from "./did.js";
-import { buildEvidencePool, type EvidencePool } from "./fixtures.js";
+import { deriveDid } from "./did";
+import { buildEvidencePool, type EvidencePool } from "./fixtures";
 
 void buildEvidencePool; // re-exported for callers; storage uses indexEvidence
-import { docHash } from "./sign.js";
-import { getScenario, type Scenario } from "./scenarios/index.js";
-import type { AgentBook, AgentRole as IdentityRole } from "./agents.js";
+import { docHash } from "./sign";
+import { getScenario, type Scenario } from "./scenarios/index";
+import type { AgentBook, AgentRole as IdentityRole } from "./agents";
 import type {
   Bundle,
   SignedEvidence,
   SignedMessage,
   SignedRuling,
   SignedVote,
-} from "./types.js";
+} from "./types";
 
 ed.hashes.sha512 = sha512;
 
@@ -77,6 +77,9 @@ export interface DisputeStorage {
   get(id: string): Promise<StoredDispute | null>;
   put(state: StoredDispute): Promise<void>;
   delete(id: string): Promise<void>;
+  /** Return ids of disputes currently held in storage. Order is implementation-
+   *  defined; callers that need recency must sort by `created_at` themselves. */
+  list(): Promise<string[]>;
 }
 
 class MemoryStorage implements DisputeStorage {
@@ -90,6 +93,9 @@ class MemoryStorage implements DisputeStorage {
   async delete(id: string) {
     this.map.delete(id);
   }
+  async list() {
+    return [...this.map.keys()];
+  }
 }
 
 class RedisStorage implements DisputeStorage {
@@ -97,9 +103,14 @@ class RedisStorage implements DisputeStorage {
   private key(id: string) {
     return `pacta:dispute:${id}`;
   }
+  private indexKey = "pacta:dispute_index";
   async get(id: string): Promise<StoredDispute | null> {
     const v = await this.redis.get(this.key(id));
-    if (v === null || v === undefined) return null;
+    if (v === null || v === undefined) {
+      // Drop stale entry from the index so list() stays accurate.
+      await this.redis.srem(this.indexKey, id).catch(() => undefined);
+      return null;
+    }
     // Upstash auto-deserializes JSON; if it didn't, fall back to parse.
     if (typeof v === "string") {
       try {
@@ -114,9 +125,15 @@ class RedisStorage implements DisputeStorage {
     await this.redis.set(this.key(state.dispute_id), JSON.stringify(state), {
       ex: this.ttlSeconds,
     });
+    await this.redis.sadd(this.indexKey, state.dispute_id);
   }
   async delete(id: string) {
     await this.redis.del(this.key(id));
+    await this.redis.srem(this.indexKey, id).catch(() => undefined);
+  }
+  async list(): Promise<string[]> {
+    const ids = await this.redis.smembers(this.indexKey);
+    return Array.isArray(ids) ? ids.map(String) : [];
   }
 }
 
@@ -212,6 +229,28 @@ export async function loadDispute(dispute_id: string): Promise<LiveDispute | nul
   const agents = rehydrateAgents(stored.agent_keys);
   const evidence = indexEvidence(stored.signed_evidence ?? []);
   return { ...stored, scenario, agents, evidence };
+}
+
+/** Return a list of dispute ids currently held in storage. */
+export async function listDisputeIds(): Promise<string[]> {
+  return getStorage().list();
+}
+
+/** Convenience: load every dispute the storage knows about. Skips ids whose
+ *  payload has expired between list() and get(). */
+export async function listDisputes(): Promise<LiveDispute[]> {
+  const ids = await listDisputeIds();
+  const out: LiveDispute[] = [];
+  for (const id of ids) {
+    const live = await loadDispute(id);
+    if (live) out.push(live);
+  }
+  return out;
+}
+
+/** Delete a dispute payload + index entry. */
+export async function deleteDispute(dispute_id: string): Promise<void> {
+  await getStorage().delete(dispute_id);
 }
 
 /** Save a LiveDispute back to storage. The scenario/agents reconstructions are

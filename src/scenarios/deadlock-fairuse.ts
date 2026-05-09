@@ -1,5 +1,5 @@
-import { docHash } from "../sign.js";
-import type { Scenario, ScenarioMockStep } from "./types.js";
+import { docHash } from "../sign";
+import type { Scenario, ScenarioMockStep } from "./types";
 
 /**
  * Second designed-deadlock scenario, this one targeted at the JURY, not the

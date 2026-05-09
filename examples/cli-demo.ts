@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 import { mkdirSync, writeFileSync } from "node:fs";
 import pc from "picocolors";
-import { loadEnv } from "../src/env.js";
-import { runPacta, listScenarios, getScenario } from "../src/pacta.js";
+import { loadEnv } from "../src/env";
+import { runPacta, listScenarios, getScenario } from "../src/pacta";
 
 loadEnv();
 

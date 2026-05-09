@@ -161,8 +161,28 @@ Pacta is also exposed as a [Model Context Protocol](https://modelcontextprotocol
 | Tool | Purpose |
 |---|---|
 | `open_dispute({ scenario_id, your_role, counterparty_external? })` | Open a dispute as one of the two roles. Returns `dispute_id`, your role token, your `did:key`, the counterparty DID, and the evidence pool with sha256 hashes. By default, Pacta drives the counterparty with Claude after each of your turns; set `counterparty_external: true` if a second MCP client is playing the other role. |
+| `join_dispute({ dispute_id, role })` | Claim the second external role on an existing dispute. First-come-first-served per role. Returns your token + the dispute info — no out-of-band token sharing required. |
 | `submit_message({ dispute_id, role_token, message })` | Submit a `Propose` / `Critique` / `CounterPropose` / `Accept` / `Reveal` / `Escalate` for your role. Pacta validates against the protocol (compromise bound, reveal monotonicity, evidence-ref existence, Accept-target validity), signs with the role's keypair, then drives any consecutive Claude turns before yielding back. |
 | `get_dispute({ dispute_id })` | Poll the public state — turn pointer, round, full signed history, pending rejection feedback, and the finalized bundle once converged or ruled. |
+
+### Pacta as the table — two external agents from two organizations
+
+The deepest model: Pacta hosts the negotiation, but neither party belongs to Pacta. Each side runs its own MCP-speaking agent (Claude Desktop, custom, whatever). They share only a `dispute_id` to find each other; tokens are issued by Pacta directly to each joiner (never out-of-band).
+
+A reference CLI agent ships in `examples/agent.ts`. Two terminals (or two laptops in two countries):
+
+```bash
+# Terminal 1 (Customer-side org runs this)
+pnpm agent --role aria --open creative-brief
+# Prints:
+#   ✓ dispute_id : dsp_…
+#   → Share this dispute_id with the peer agent (no token needed)
+
+# Terminal 2 (Vendor-side org runs this, on a different machine)
+pnpm agent --role atlas --dispute-id dsp_…
+```
+
+Each agent independently calls Anthropic with its role's system prompt, builds a Pacta message, calls `submit_message` via MCP, polls `get_dispute` until its turn, repeats. The two LLMs are independent; the only thing they share is Pacta's audit trail.
 
 State persists in `globalThis` for the lifetime of a warm Vercel instance — sufficient for a single demo session that runs in seconds-to-minutes. For multi-instance or long-lived disputes, swap to Vercel KV (one-line change in `src/dispute_store.ts`).
 

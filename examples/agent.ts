@@ -106,11 +106,10 @@ async function main() {
 
   type DisputeBootstrap = {
     dispute_id: string;
-    scenario_id: string;
+    scenario: { id: string; case_summary: string };
     your_did: string;
     counterparty_did: string;
     your_token: string;
-    counterparty_token?: string;
     evidence_summary: Array<{ id: string; tier: string; submitter: string; hash: string }>;
   };
 
@@ -160,7 +159,7 @@ async function main() {
     log("");
   }
 
-  const scenario = getScenario(boot.scenario_id);
+  const scenario = getScenario(boot.scenario.id);
   const sysPrompt = scenario.agents[args.role].system_prompt;
   log(pc.gray(`scenario: ${scenario.name}`));
   log(pc.gray(`role: ${args.role} (${scenario.agents[args.role].display_name})`));

@@ -167,22 +167,47 @@ Pacta is also exposed as a [Model Context Protocol](https://modelcontextprotocol
 
 ### Pacta as the table — two external agents from two organizations
 
-The deepest model: Pacta hosts the negotiation, but neither party belongs to Pacta. Each side runs its own MCP-speaking agent (Claude Desktop, custom, whatever). They share only a `dispute_id` to find each other; tokens are issued by Pacta directly to each joiner (never out-of-band).
+The point of Pacta isn't a library of canned cases. It's the **protocol**: signed messages, compromise bound, reveal monotonicity, evidence tier weighting, jury escalation, an externally verifiable audit trail. The disputes themselves come from the agents using Pacta — not from us.
 
-A reference CLI agent ships in `examples/agent.ts`. Two terminals (or two laptops in two countries):
+`open_dispute` accepts:
+- `claim` (required for schema-less BYO mode) — free-form description of what's being disputed.
+- `scenario_id` (optional) — load one of the 6 bundled templates pre-loaded with evidence.
+- both, if you want to start a dispute about your own thing using a template's evidence.
+
+Roles `aria` and `atlas` are **abstract** — what they MEAN comes from your `claim` and the messages you send. They don't carry our prompts unless you opted into a scenario template.
+
+#### Connect from claude.ai (or Claude Desktop)
+
+Add the Pacta MCP as a custom connector pointed at:
+
+```
+https://platanus-hack-26-ar-team-5.vercel.app/api/mcp
+```
+
+Two-organization demo flow:
+
+1. **Person 1** (Customer's side) tells their Claude: *"Open a Pacta dispute. The claim: 'Vendor X delivered our payments integration 3 weeks late and we invoke the SLA penalty clause.' I'll be aria. Other side will be external."*
+   - Claude calls `open_dispute({ claim, your_role: "aria", counterparty_external: true })` and returns the `dispute_id`.
+2. Person 1 sends the `dispute_id` to **Person 2** (over Slack, paper, whatever).
+3. **Person 2** (Vendor's side) tells their Claude: *"Join Pacta dispute dsp_xxx as atlas."*
+   - Claude calls `join_dispute({ dispute_id, role: "atlas" })` and gets its token.
+4. Each side adds their own evidence: *"Submit this contract clause as Tier S evidence."* → Claude calls `submit_evidence` and gets back the sha256 hash.
+5. Each side proposes / counters / reveals / accepts based on what THEY want — not from any prompt we shipped. *"Submit a Propose with state {credit_usd: 50000, terms: ...} citing those two evidence hashes, util 0.92."* → Claude calls `submit_message`.
+6. Convergence → signed bundle. Either side: *"Verify the bundle."* → Claude calls `verify_bundle`. 100% of signatures must validate.
+
+#### Reference CLI agent (autonomous)
+
+`examples/agent.ts` is a stand-alone CLI Pacta agent — uses one of the bundled scenarios for its system prompt and runs autonomously against the MCP. Useful when you want two AIs negotiating without humans typing each turn:
 
 ```bash
-# Terminal 1 (Customer-side org runs this)
-pnpm agent --role aria --open creative-brief
-# Prints:
-#   ✓ dispute_id : dsp_…
-#   → Share this dispute_id with the peer agent (no token needed)
+# Terminal 1 — opener
+pnpm agent --role aria  --open creative-brief
 
-# Terminal 2 (Vendor-side org runs this, on a different machine)
+# Terminal 2 — joiner (uses the dispute_id printed by terminal 1)
 pnpm agent --role atlas --dispute-id dsp_…
 ```
 
-Each agent independently calls Anthropic with its role's system prompt, builds a Pacta message, calls `submit_message` via MCP, polls `get_dispute` until its turn, repeats. The two LLMs are independent; the only thing they share is Pacta's audit trail.
+This requires `ANTHROPIC_API_KEY` locally (the CLI makes its own LLM calls). For schema-less disputes opened by claude.ai users, the CLI agent doesn't apply — there's no scenario template to drive its system prompt.
 
 State persists in `globalThis` for the lifetime of a warm Vercel instance — sufficient for a single demo session that runs in seconds-to-minutes. For multi-instance or long-lived disputes, swap to Vercel KV (one-line change in `src/dispute_store.ts`).
 

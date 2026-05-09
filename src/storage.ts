@@ -19,9 +19,18 @@ import { sha512 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { deriveDid } from "./did.js";
 import { buildEvidencePool, type EvidencePool } from "./fixtures.js";
+
+void buildEvidencePool; // re-exported for callers; storage uses indexEvidence
+import { docHash } from "./sign.js";
 import { getScenario, type Scenario } from "./scenarios/index.js";
 import type { AgentBook, AgentRole as IdentityRole } from "./agents.js";
-import type { Bundle, SignedMessage, SignedRuling, SignedVote } from "./types.js";
+import type {
+  Bundle,
+  SignedEvidence,
+  SignedMessage,
+  SignedRuling,
+  SignedVote,
+} from "./types.js";
 
 ed.hashes.sha512 = sha512;
 
@@ -29,7 +38,16 @@ export type AgentRole = "aria" | "atlas";
 
 export type StoredDispute = {
   dispute_id: string;
-  scenario_id: string;
+  /** Free-form description of the dispute supplied by the opener. The agents'
+   *  positions, evidence and arguments come from them, not from us. */
+  claim: string | null;
+  /** Optional template id — only set when this dispute was opened from one of
+   *  our bundled scenario templates. Schema-less disputes leave this null. */
+  scenario_id: string | null;
+  /** Signed evidence pool. Pre-loaded from a scenario template when scenario_id
+   *  is set, OR appended by the parties via submit_evidence. Always stored
+   *  directly so canonical bytes / hashes are stable across reloads. */
+  signed_evidence: SignedEvidence[];
   history: SignedMessage[];
   controllers: Record<AgentRole, "external" | "claude">;
   role_tokens: Record<AgentRole, string>;
@@ -47,9 +65,10 @@ export type StoredDispute = {
 };
 
 /** Hydrated runtime view: the StoredDispute plus the reconstructed AgentBook,
- *  EvidencePool, and Scenario reference. Created on each load by hydrate(). */
+ *  EvidencePool, and (optionally) Scenario reference. Created on each load. */
 export type LiveDispute = StoredDispute & {
-  scenario: Scenario;
+  /** Optional — only present for template-driven disputes. */
+  scenario: Scenario | null;
   agents: AgentBook;
   evidence: EvidencePool;
 };
@@ -173,25 +192,36 @@ export function rehydrateAgents(stored: StoredDispute["agent_keys"]): AgentBook 
   return agents;
 }
 
-/** Load a full LiveDispute from storage: rehydrates agents and rebuilds the
- *  evidence pool against the same private keys (stable signatures across loads). */
+function indexEvidence(signed: SignedEvidence[]): EvidencePool {
+  const byEvidenceId = new Map<string, SignedEvidence>();
+  const byHash = new Map<string, SignedEvidence>();
+  for (const e of signed) {
+    byEvidenceId.set(e.evidence_id, e);
+    byHash.set(docHash(e), e);
+  }
+  return { signed, byEvidenceId, byHash };
+}
+
+/** Load a full LiveDispute from storage: rehydrates agents and indexes the
+ *  signed evidence pool. Signed evidence bytes are stored directly so canonical
+ *  hashes are stable without rebuilding. */
 export async function loadDispute(dispute_id: string): Promise<LiveDispute | null> {
   const stored = await getStorage().get(dispute_id);
   if (!stored) return null;
-  const scenario = getScenario(stored.scenario_id);
+  const scenario = stored.scenario_id ? getScenario(stored.scenario_id) : null;
   const agents = rehydrateAgents(stored.agent_keys);
-  // Use the dispute's created_at as the evidence signing timestamp so the
-  // evidence pool is byte-identical (and hash-stable) across reloads.
-  const evidence = buildEvidencePool(agents, scenario, stored.created_at);
+  const evidence = indexEvidence(stored.signed_evidence ?? []);
   return { ...stored, scenario, agents, evidence };
 }
 
-/** Save a LiveDispute back to storage. The scenario/agents/evidence are NOT
- *  persisted — they're recomputed on next load. */
+/** Save a LiveDispute back to storage. The scenario/agents reconstructions are
+ *  NOT persisted — they're recomputed on next load. signed_evidence IS stored. */
 export async function saveDispute(live: LiveDispute): Promise<void> {
   const stored: StoredDispute = {
     dispute_id: live.dispute_id,
+    claim: live.claim,
     scenario_id: live.scenario_id,
+    signed_evidence: live.evidence.signed,
     history: live.history,
     controllers: live.controllers,
     role_tokens: live.role_tokens,

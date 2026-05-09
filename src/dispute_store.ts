@@ -1,17 +1,26 @@
 /**
  * Dispute store façade. Backed by `src/storage.ts` (memory-by-default,
  * Redis-when-configured). All accessors are async.
+ *
+ * Two ways to open a dispute:
+ *  - schema-less: pass a free-form `claim` string. Pacta gives you the table
+ *    (signed messages, compromise bound, jury, audit trail). Both parties
+ *    bring their own positions, system prompts, evidence.
+ *  - template: pass a `scenario_id` from our bundled library. Pacta pre-loads
+ *    that scenario's evidence pool. Useful for canned demos.
  */
-import { docHash } from "./sign.js";
+import { docHash, signDoc } from "./sign.js";
+import { hash as hashOf } from "./canonical.js";
 import { getScenario, type Scenario } from "./scenarios/index.js";
 import {
   freshAgents,
   loadDispute,
-  saveDispute,
+  saveDispute as saveLive,
   type LiveDispute,
   type AgentRole,
 } from "./storage.js";
-import { buildEvidencePool } from "./fixtures.js";
+import { buildEvidencePool, type EvidencePool } from "./fixtures.js";
+import type { Evidence, EvidenceTier, SignedEvidence } from "./types.js";
 
 export type { AgentRole, LiveDispute as DisputeState } from "./storage.js";
 
@@ -23,9 +32,20 @@ function randId(prefix: string): string {
   return `${prefix}_${h}`;
 }
 
+export type OpenDisputeArgs = {
+  /** Free-form description of what's being disputed. Required when scenario_id is absent. */
+  claim?: string;
+  /** Bundled scenario template id. Pre-loads its evidence + system prompts. Required if claim is absent. */
+  scenario_id?: string;
+  your_role: AgentRole;
+  counterparty_external?: boolean;
+  max_rounds?: number;
+};
+
 export type OpenDisputeResult = {
   dispute_id: string;
-  scenario: Scenario;
+  claim: string | null;
+  scenario: Scenario | null;
   agents: { aria: string; atlas: string; tribunal: string };
   evidence_summary: Array<{ id: string; tier: string; submitter: string; hash: string }>;
   your_role: AgentRole;
@@ -37,16 +57,16 @@ export type OpenDisputeResult = {
   current_round: number;
 };
 
-export async function openDispute(args: {
-  scenario_id: string;
-  your_role: AgentRole;
-  counterparty_external?: boolean;
-  max_rounds?: number;
-}): Promise<OpenDisputeResult> {
-  const scenario = getScenario(args.scenario_id);
+export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeResult> {
+  if (!args.scenario_id && !args.claim) {
+    throw new Error("open_dispute requires either scenario_id or claim (or both)");
+  }
+  const scenario = args.scenario_id ? getScenario(args.scenario_id) : null;
   const { agents, agent_keys } = freshAgents();
   const created_at = new Date().toISOString();
-  const evidence = buildEvidencePool(agents, scenario, created_at);
+  const evidence: EvidencePool = scenario
+    ? buildEvidencePool(agents, scenario, created_at)
+    : { signed: [], byEvidenceId: new Map(), byHash: new Map() };
   const dispute_id = randId("dsp");
   const your_role = args.your_role;
   const other_role: AgentRole = your_role === "aria" ? "atlas" : "aria";
@@ -70,7 +90,9 @@ export async function openDispute(args: {
 
   const live: LiveDispute = {
     dispute_id,
-    scenario_id: scenario.id,
+    claim: args.claim ?? null,
+    scenario_id: scenario ? scenario.id : null,
+    signed_evidence: evidence.signed,
     scenario,
     agents,
     evidence,
@@ -87,10 +109,11 @@ export async function openDispute(args: {
     created_at,
     agent_keys,
   };
-  await saveDispute(live);
+  await saveLive(live);
 
   return {
     dispute_id,
+    claim: live.claim,
     scenario,
     agents: {
       aria: agents.aria.did,
@@ -115,7 +138,8 @@ export async function openDispute(args: {
 
 export type JoinDisputeResult = {
   dispute_id: string;
-  scenario: Scenario;
+  claim: string | null;
+  scenario: Scenario | null;
   agents: { aria: string; atlas: string; tribunal: string };
   evidence_summary: Array<{ id: string; tier: string; submitter: string; hash: string }>;
   your_role: AgentRole;
@@ -137,10 +161,11 @@ export async function joinDispute(args: {
   if (s.claimed[args.role])
     throw new Error(`role '${args.role}' has already been claimed in this dispute`);
   s.claimed[args.role] = true;
-  await saveDispute(s);
+  await saveLive(s);
   const other: AgentRole = args.role === "aria" ? "atlas" : "aria";
   return {
     dispute_id: s.dispute_id,
+    claim: s.claim,
     scenario: s.scenario,
     agents: {
       aria: s.agents.aria.did,
@@ -162,6 +187,54 @@ export async function joinDispute(args: {
   };
 }
 
+export type SubmitEvidenceArgs = {
+  dispute_id: string;
+  role_token: string;
+  evidence: { tier: EvidenceTier; title: string; body: string; evidence_id?: string };
+};
+
+export type SubmitEvidenceResult = {
+  evidence_id: string;
+  hash: string;
+  signed: SignedEvidence;
+};
+
+/** Append a piece of signed evidence to an open dispute. The role identified
+ *  by role_token signs the evidence with their private key (so the audit trail
+ *  shows WHO submitted it). */
+export async function submitEvidence(args: SubmitEvidenceArgs): Promise<SubmitEvidenceResult> {
+  const s = await loadDispute(args.dispute_id);
+  if (!s) throw new Error(`unknown dispute: ${args.dispute_id}`);
+  if (s.finalized) throw new Error("dispute is already finalized");
+  // Identify the role by token (either party can submit evidence at any time
+  // — evidence isn't bound to a turn).
+  let submitterRole: AgentRole | null = null;
+  for (const r of ["aria", "atlas"] as AgentRole[]) {
+    if (s.role_tokens[r] === args.role_token) submitterRole = r;
+  }
+  if (!submitterRole) throw new Error("role_token mismatch — token does not match either party");
+  const submitter = s.agents[submitterRole];
+  const now = new Date().toISOString();
+  const evidence_id = args.evidence.evidence_id ?? randId("ev");
+  const evidence: Evidence = {
+    type: "Evidence",
+    evidence_id,
+    submitter: submitter.did,
+    tier: args.evidence.tier,
+    title: args.evidence.title,
+    body: args.evidence.body,
+    produced_at: now,
+  };
+  const signed = signDoc(evidence, submitter.keypair, submitter.did, now);
+  const h = hashOf(signed);
+  // Append to the live evidence pool (and re-index).
+  s.evidence.signed.push(signed);
+  s.evidence.byEvidenceId.set(evidence_id, signed);
+  s.evidence.byHash.set(h, signed);
+  await saveLive(s);
+  return { evidence_id, hash: h, signed };
+}
+
 export async function getDispute(dispute_id: string): Promise<LiveDispute> {
   const s = await loadDispute(dispute_id);
   if (!s) throw new Error(`unknown dispute: ${dispute_id}`);
@@ -173,6 +246,7 @@ export async function dumpDispute(dispute_id: string) {
   const s = await getDispute(dispute_id);
   return {
     dispute_id: s.dispute_id,
+    claim: s.claim,
     scenario_id: s.scenario_id,
     agents: {
       aria: s.agents.aria.did,
@@ -191,4 +265,4 @@ export async function dumpDispute(dispute_id: string) {
   };
 }
 
-export { saveDispute };
+export const saveDispute = saveLive;

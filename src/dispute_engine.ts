@@ -148,7 +148,7 @@ function advanceTurn(state: DisputeState): { advanced_round: boolean } {
 function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
   const bundleNoHash: Omit<Bundle, "root_hash"> = {
     type: "Bundle",
-    scenario: state.scenario_id,
+    scenario: state.scenario_id ?? "freeform",
     agents: {
       aria: state.agents.aria.did,
       atlas: state.agents.atlas.did,
@@ -208,6 +208,13 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
     state.current_round <= state.max_rounds
   ) {
     const role = state.turn;
+    if (!state.scenario) {
+      // Schema-less disputes have no system prompts — Pacta cannot drive
+      // a Claude-controlled turn here. Force the role to be external.
+      throw new Error(
+        "schema-less dispute has no scenario template; both sides must be external (counterparty_external=true)",
+      );
+    }
     const driver = makeClaudeDriver({
       scenario: state.scenario,
       didByRole: { aria: state.agents.aria.did, atlas: state.agents.atlas.did },

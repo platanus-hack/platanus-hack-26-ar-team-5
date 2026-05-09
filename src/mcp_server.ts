@@ -18,7 +18,13 @@ import { z } from "zod";
 import { runPacta, listScenarios, getScenario } from "./pacta.js";
 import { verifySignedDoc, docHash } from "./sign.js";
 import { hash as hashOf } from "./canonical.js";
-import { openDispute, joinDispute, getDispute, dumpDispute } from "./dispute_store.js";
+import {
+  openDispute,
+  joinDispute,
+  getDispute,
+  dumpDispute,
+  submitEvidence,
+} from "./dispute_store.js";
 import { submitExternalMessage, advanceClaudeTurns, publicState } from "./dispute_engine.js";
 import type { Bundle } from "./types.js";
 import type { MessageBody } from "./orchestrator.js";
@@ -185,33 +191,45 @@ export function buildPactaMcpServer(): McpServer {
     "open_dispute",
     {
       description:
-        "Open a Pacta dispute as an external agent (BYO mode). You pick a bundled scenario " +
-        "and the role you'll play. By default the counterparty is played by Claude inside " +
-        "Pacta. Returns a dispute_id, your role token, your DID, the counterparty DID, the " +
-        "evidence pool (with sha256 hashes), and who acts next. To take a turn use " +
-        "submit_message with the returned dispute_id and role_token.",
+        "Open a Pacta dispute. Two modes:\n" +
+        "  • SCHEMA-LESS (real BYO): pass `claim` describing what's being disputed. " +
+        "Pacta gives you the protocol (signed messages, compromise bound, jury, audit " +
+        "trail). You and the counterparty bring your own positions, prompts, and " +
+        "evidence (use submit_evidence). Roles 'aria' and 'atlas' are abstract " +
+        "labels — what they MEAN comes from your claim and your messages.\n" +
+        "  • TEMPLATE (demo): pass `scenario_id` to load one of the bundled cases " +
+        "(ai-overrun, oncology, cve-disclosure, creative-brief, deadlock-leak, " +
+        "deadlock-fairuse). The pool comes pre-loaded with that scenario's evidence.\n\n" +
+        "Returns dispute_id, your role token, your DID, the counterparty DID, the " +
+        "(initially empty for schema-less) evidence pool, and who acts next.",
       inputSchema: {
+        claim: z
+          .string()
+          .optional()
+          .describe(
+            "Free-form description of what's being disputed. Required when scenario_id is absent. Example: 'Vendor A delivered our X feature 3 weeks late, claiming Z. We invoke the SLA penalty clause.'",
+          ),
         scenario_id: z
           .string()
-          .describe(
-            "One of: ai-overrun, oncology, cve-disclosure, creative-brief, deadlock-leak, deadlock-fairuse",
-          ),
+          .optional()
+          .describe("Optional bundled scenario template id."),
         your_role: z
           .enum(["aria", "atlas"])
           .describe(
-            "Which role you will play. Aria = the technically-empowered claimant; Atlas = the contractually-anchored respondent. Each scenario reframes these as e.g. Aurora/Cobra, Hedge/Bastion, etc.",
+            "Which role you will play. 'aria' and 'atlas' are abstract labels for the two parties — define what they mean in your claim.",
           ),
         counterparty_external: z
           .boolean()
           .optional()
           .describe(
-            "If true, both sides are external — the OTHER side must also call submit_message. Defaults false (Pacta drives the other side with Claude).",
+            "If true (REQUIRED for schema-less), the OTHER side must also be a real external agent. If false (default), Pacta drives the other side with Claude — only valid when scenario_id is provided (the scenario carries the system prompt).",
           ),
       },
     },
-    async ({ scenario_id, your_role, counterparty_external }) => {
+    async ({ claim, scenario_id, your_role, counterparty_external }) => {
       try {
         const result = await openDispute({
+          claim,
           scenario_id,
           your_role,
           counterparty_external: counterparty_external === true,
@@ -223,7 +241,8 @@ export function buildPactaMcpServer(): McpServer {
               text:
                 `Dispute opened.\n` +
                 `  dispute_id:           ${result.dispute_id}\n` +
-                `  scenario:             ${result.scenario.name}\n` +
+                `  scenario:             ${result.scenario?.name ?? "(schema-less / claim provided)"}\n` +
+                `  claim:                ${result.claim ?? "(none)"}\n` +
                 `  your_role:            ${result.your_role}\n` +
                 `  your_did:             ${result.your_did}\n` +
                 `  your_token:           ${result.your_token}\n` +
@@ -267,7 +286,8 @@ export function buildPactaMcpServer(): McpServer {
               text:
                 `Joined dispute.\n` +
                 `  dispute_id:        ${r.dispute_id}\n` +
-                `  scenario:          ${r.scenario.name}\n` +
+                `  scenario:          ${r.scenario?.name ?? "(schema-less)"}\n` +
+                `  claim:             ${r.claim ?? "(none)"}\n` +
                 `  your_role:         ${r.your_role}\n` +
                 `  your_did:          ${r.your_did}\n` +
                 `  your_token:        ${r.your_token}\n` +
@@ -275,6 +295,63 @@ export function buildPactaMcpServer(): McpServer {
                 `  next_to_act:       ${r.next_to_act}\n` +
                 `  current_round:     ${r.current_round}\n\n` +
                 `--- DETAILS ---\n${JSON.stringify(r, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { isError: true, content: [{ type: "text", text: (err as Error).message }] };
+      }
+    },
+  );
+
+  // ----- Phase 2: submit_evidence -------------------------------------------
+  server.registerTool(
+    "submit_evidence",
+    {
+      description:
+        "Append a piece of signed evidence to an open dispute. Either party can submit " +
+        "evidence at any time (it isn't bound to a turn). Pacta signs the evidence with " +
+        "your role's keypair so the audit trail records who submitted it. Returns the " +
+        "evidence_id and sha256 hash you'll use in subsequent submit_message calls' " +
+        "evidence_refs. For SCHEMA-LESS disputes, this is how you bring your own " +
+        "evidence in. For TEMPLATE disputes, it's an additive surface on top of the " +
+        "pre-loaded scenario pool.",
+      inputSchema: {
+        dispute_id: z.string(),
+        role_token: z.string(),
+        evidence: z
+          .object({
+            tier: z
+              .enum(["S", "A", "B", "C"])
+              .describe(
+                "Evidence tier. S = cryptographically self-verifiable (signed contract, on-chain tx). " +
+                  "A = third-party verifiable (public paper, public changelog, attested log). " +
+                  "B = self-emitted internal document — weighted less by the jury. " +
+                  "C = pure argumentation / interpretation.",
+              ),
+            title: z.string(),
+            body: z.string().describe("The actual content / summary of the evidence."),
+            evidence_id: z
+              .string()
+              .optional()
+              .describe("Optional stable id. Pacta generates one if you don't provide it."),
+          }),
+      },
+    },
+    async ({ dispute_id, role_token, evidence }) => {
+      try {
+        const r = await submitEvidence({ dispute_id, role_token, evidence });
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Evidence appended.\n` +
+                `  evidence_id: ${r.evidence_id}\n` +
+                `  hash:        ${r.hash}\n` +
+                `  submitter:   ${r.signed.submitter}\n` +
+                `  tier:        ${r.signed.tier}\n` +
+                `Use this hash in future submit_message evidence_refs.`,
             },
           ],
         };

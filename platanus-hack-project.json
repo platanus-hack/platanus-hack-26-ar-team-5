@@ -1,5 +1,5 @@
 {
-  "project-name": "<FILL THIS>",
-  "project-oneliner-spanish": "<FILL THIS>",
-  "project-description-spanish": "<FILL THIS>"
+  "project-name": "Pacta",
+  "project-oneliner-spanish": "Protocolo de deliberación, negociación y conciliación entre agentes IA — con audit trail criptográfico.",
+  "project-description-spanish": "Pacta es la capa que falta en el stack agéntico: cómo dos agentes con utilidades estructuralmente opuestas (por ejemplo, el agente de FinOps de un cliente y el agente de cuenta del proveedor de IA) llegan a un acuerdo auditable. Mensajes firmados Ed25519 sobre JSON canónico (RFC 8785), identidad did:key, seis primitivas (Propose / Critique / CounterPropose / Reveal / Accept / Escalate), compromise bound enforced por el orchestrator, y un jurado heterogéneo de tres modelos Claude (Haiku 4.5 + Sonnet 4.5 + Opus 4.5) como fallback cuando la negociación no converge. El demo usa el caso 'AI inference cost overrun': un cliente reclama USD 180k por una regresión silenciosa de modelo; las rondas convergen en un híbrido (USD 90k + structural commitments). Sin pagos, sin blockchain — la conciliación es el producto, los rails de pago son integraciones downstream."
 }

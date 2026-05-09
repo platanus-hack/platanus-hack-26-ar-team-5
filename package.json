@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
+    "@vercel/node": "^5.7.16",
     "@vitest/ui": "^4.1.5",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",

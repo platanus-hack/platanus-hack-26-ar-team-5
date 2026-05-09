@@ -25,7 +25,7 @@ async function main() {
 
   console.log("\n[2/4] pacta_list_scenarios");
   const ls = await client.callTool({ name: "list_scenarios", arguments: {} });
-  const lsText = (ls.content?.[0] as { type: string; text?: string } | undefined)?.text ?? "";
+  const lsText = ((ls.content as Array<{ type: string; text?: string }> | undefined)?.[0]?.text) ?? "";
   console.log("  " + lsText.replace(/\n/g, "\n  ").slice(0, 400) + "…");
 
   console.log("\n[3/4] pacta_run_scenario(scenario_id=ai-overrun, mock=true)");
@@ -33,7 +33,7 @@ async function main() {
     name: "run_scenario",
     arguments: { scenario_id: "ai-overrun", mock: true },
   });
-  const runText = (run.content?.[0] as { type: string; text?: string } | undefined)?.text ?? "";
+  const runText = ((run.content as Array<{ type: string; text?: string }> | undefined)?.[0]?.text) ?? "";
   // Show just the summary header
   console.log("  " + runText.split("\n").slice(0, 6).join("\n  "));
   // Extract the bundle JSON from the response
@@ -48,7 +48,7 @@ async function main() {
     name: "verify_bundle",
     arguments: { bundle },
   });
-  const verifyText = (verify.content?.[0] as { type: string; text?: string } | undefined)?.text ?? "";
+  const verifyText = ((verify.content as Array<{ type: string; text?: string }> | undefined)?.[0]?.text) ?? "";
   console.log("  " + verifyText.replace(/\n/g, "\n  "));
   if (verify.isError) throw new Error("verify_bundle reported failures");
 

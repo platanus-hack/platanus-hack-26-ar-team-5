@@ -357,6 +357,7 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         `escalation_by_${role}:${reason}`,
       );
       events.push(...escalation);
+      await saveDispute(state);
       return events;
     }
     const conv = isConverged(state.history);
@@ -372,6 +373,7 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         accepted_msg_hash: conv.hash,
       });
       events.push({ kind: "bundle.built", bundle });
+      await saveDispute(state);
       return events;
     }
     const adv = advanceTurn(state);
@@ -380,8 +382,12 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
     if (state.current_round > state.max_rounds) {
       const escalation = await escalateAndFinalize(state, "max_rounds_exhausted");
       events.push(...escalation);
+      await saveDispute(state);
       return events;
     }
+    // Persist after every accepted Claude turn so that observers polling the
+    // store (e.g. the dashboard) see progress in real time.
+    await saveDispute(state);
   }
   return events;
 }

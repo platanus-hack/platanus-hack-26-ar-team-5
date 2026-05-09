@@ -75,6 +75,15 @@ The server resolves all three forms to canonical sha256 before signing — the a
 - **Critique** payload requires \`target_msg_hash\` (use \`mN\`).
 - Rejected messages return a \`pending_feedback\` string echoing the valid refs. Read it and self-correct on the next attempt — you have one retry per turn.
 
+# Convergence rule — the cross-accept trap (read this twice)
+**Convergence requires BOTH parties to Accept the SAME \`target_msg_hash\`.** Two Accepts on different targets do NOT converge — even if both target proposals have substantively identical terms. This is by design (the bundle's \`accepted_msg_hash\` must be a single canonical document) but it's a real footgun:
+- Aria CounterProposes m5 → Atlas Accept(m5). Atlas CounterProposed m4 → Aria Accept(m4). **Not converged.** Each side accepted the other's last CounterPropose, but they're different hashes.
+- Fix: when you decide to Accept, look at the latest CounterPropose by the COUNTERPARTY (not your own) and Accept THAT. The other side will then Accept the same one. Both Accepts on the same target → converged.
+- If you're already in a cross-accept state (your Accept and theirs target different hashes), restate the agreed terms in a fresh CounterPropose so both sides can Accept the same fresh anchor — but this costs a round, so the better move is to converge on the counterparty's CP directly.
+
+# Self-Accept
+You CAN Accept a CounterPropose you authored — useful only as the convergence-anchor pattern above (you re-state agreed terms in a CP, then both you and the counterparty Accept it). In a normal flow, prefer Accepting the counterparty's CP.
+
 # Payload shapes
 - Propose / CounterPropose: \`{ state: { credit_usd, terms }, rationale, utility_for_self }\` — \`credit_usd\` is 0 for non-monetary disputes; \`terms\` is the deliberation text.
 - Critique: \`{ target_msg_hash, rationale }\`
@@ -190,19 +199,67 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
       description:
         "Verify a Pacta Bundle independently. Re-checks Ed25519 signatures over RFC 8785 " +
         "canonical bytes for every signed evidence + message + vote + ruling, and validates " +
-        "the bundle root_hash. When the bundle includes 'root_hash_jcs' (the canonical-JCS " +
-        "string used at build time), root_hash is verified by hashing that string directly — " +
-        "this is byte-deterministic and immune to JSON round-trip noise. When absent, falls " +
-        "back to recomputing canonicalize(bundle minus root_hash). Returns a per-document " +
-        "pass/fail report.",
+        "the bundle root_hash. Two input modes:\n" +
+        "  • dispute_id (preferred for agentic clients): the server fetches the finalized " +
+        "bundle internally — no need to inline a 100KB+ artifact through your context window.\n" +
+        "  • bundle (legacy): pass the full Pacta Bundle JSON object — typically the output of " +
+        "run_scenario or get_dispute.finalized.\n" +
+        "When the bundle includes 'root_hash_jcs' (the canonical-JCS string used at build time), " +
+        "root_hash is verified by hashing that string directly — byte-deterministic and immune " +
+        "to JSON round-trip noise. When absent, falls back to recomputing canonicalize(bundle " +
+        "minus root_hash). Returns a per-document pass/fail report.",
       inputSchema: {
         bundle: z
           .unknown()
-          .describe("A Pacta Bundle JSON object — typically the output of run_scenario or get_dispute.finalized."),
+          .optional()
+          .describe("Optional. A Pacta Bundle JSON object — typically the output of run_scenario or get_dispute.finalized. Mutually exclusive with dispute_id."),
+        dispute_id: z
+          .string()
+          .optional()
+          .describe("Optional. Verify the finalized bundle of an existing dispute by id — server fetches it internally so the client doesn't have to ship the full bundle. The dispute must be finalized (converged or ruled). Mutually exclusive with bundle."),
       },
     },
-    async ({ bundle }) => {
-      const b = bundle as Bundle;
+    async ({ bundle, dispute_id }) => {
+      // Mode resolution: dispute_id takes precedence if both are passed; bundle
+      // is the legacy path. Reject if neither.
+      let b: Bundle;
+      if (typeof dispute_id === "string" && dispute_id.length > 0) {
+        try {
+          const dump = await dumpDispute(dispute_id);
+          if (!dump.finalized) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `verify_bundle: dispute ${dispute_id} is not finalized yet ` +
+                    `(turn=${dump.turn}, current_round=${dump.current_round}). ` +
+                    `Wait for convergence or jury ruling before verifying.`,
+                },
+              ],
+            };
+          }
+          b = dump.finalized as Bundle;
+        } catch (err) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: (err as Error).message }],
+          };
+        }
+      } else if (bundle != null) {
+        b = bundle as Bundle;
+      } else {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "verify_bundle requires either `dispute_id` (server-side fetch) or `bundle` (full inline object).",
+            },
+          ],
+        };
+      }
       const checks: Array<{ label: string; ok: boolean; detail?: string }> = [];
       for (const e of b.evidence ?? []) {
         checks.push({ label: `evidence ${e.evidence_id}`, ok: verifySignedDoc(e) });

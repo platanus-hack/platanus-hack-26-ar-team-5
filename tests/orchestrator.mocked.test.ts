@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bootAgents } from "../src/agents.js";
 import { buildEvidencePool } from "../src/fixtures.js";
+import { aiOverrun } from "../src/scenarios/ai-overrun.js";
 import { runNegotiation, type LLMDriver, type MessageBody } from "../src/orchestrator.js";
 import { docHash, verifySignedDoc } from "../src/sign.js";
 import type { SignedMessage } from "../src/types.js";
@@ -103,7 +104,7 @@ async function drainNegotiation(
 describe("orchestrator (mocked) — happy path", () => {
   it("converges in 4 rounds with the AI-overrun script and signs every message", async () => {
     const agents = bootAgents();
-    const pool = buildEvidencePool(agents);
+    const pool = buildEvidencePool(agents, aiOverrun);
     const ariaEvidence = pool.signed.filter((e) => e.submitter === agents.aria.did).map(docHash);
     const atlasEvidence = pool.signed
       .filter((e) => e.submitter === agents.atlas.did)
@@ -218,7 +219,7 @@ describe("orchestrator (mocked) — happy path", () => {
 describe("orchestrator (mocked) — validation rejections", () => {
   it("rejects evidence_refs that don't exist in the pool", async () => {
     const agents = bootAgents();
-    const pool = buildEvidencePool(agents);
+    const pool = buildEvidencePool(agents, aiOverrun);
     const driver: LLMDriver = {
       async emit({ round }) {
         // Always emit bogus evidence_refs; orchestrator should reject twice and move on.
@@ -239,7 +240,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
 
   it("rejects compromise-bound violations (utility increases vs prior)", async () => {
     const agents = bootAgents();
-    const pool = buildEvidencePool(agents);
+    const pool = buildEvidencePool(agents, aiOverrun);
     const ariaEvidence = pool.signed.filter((e) => e.submitter === agents.aria.did).map(docHash);
     const atlasEvidence = pool.signed.filter((e) => e.submitter === agents.atlas.did).map(docHash);
 
@@ -296,7 +297,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
 
   it("rejects reveal monotonicity violations (same domain twice)", async () => {
     const agents = bootAgents();
-    const pool = buildEvidencePool(agents);
+    const pool = buildEvidencePool(agents, aiOverrun);
     const ariaEvidence = pool.signed.filter((e) => e.submitter === agents.aria.did).map(docHash);
     const atlasEvidence = pool.signed.filter((e) => e.submitter === agents.atlas.did).map(docHash);
 
@@ -355,7 +356,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
 
   it("escalates when max rounds reached without convergence", async () => {
     const agents = bootAgents();
-    const pool = buildEvidencePool(agents);
+    const pool = buildEvidencePool(agents, aiOverrun);
     const ariaEvidence = pool.signed.filter((e) => e.submitter === agents.aria.did).map(docHash);
     const atlasEvidence = pool.signed.filter((e) => e.submitter === agents.atlas.did).map(docHash);
 

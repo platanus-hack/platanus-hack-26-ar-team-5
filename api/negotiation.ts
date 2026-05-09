@@ -1,22 +1,34 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { runPacta } from "../src/pacta.js";
+import { runPacta, listScenarios } from "../src/pacta.js";
 
 export const config = { maxDuration: 60 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/", "http://localhost");
+  const body = (req.body ?? {}) as { mock?: boolean; scenario?: string };
+
   const mockParam = url.searchParams.get("mock");
-  const mockBody = (req.body as { mock?: boolean } | undefined)?.mock === true;
   const useMock =
     mockParam === "1" ||
     mockParam === "true" ||
-    mockBody ||
+    body.mock === true ||
     !process.env.ANTHROPIC_API_KEY;
+
+  const scenarioParam = url.searchParams.get("scenario") ?? body.scenario;
+  const known = new Set(listScenarios().map((s) => s.id));
+  if (scenarioParam && !known.has(scenarioParam)) {
+    res.status(400).json({
+      error: `Unknown scenario '${scenarioParam}'`,
+      available: listScenarios(),
+    });
+    return;
+  }
 
   res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("X-Pacta-Mode", useMock ? "mock" : "live");
+  res.setHeader("X-Pacta-Scenario", scenarioParam ?? "ai-overrun");
   res.flushHeaders?.();
 
   const write = (obj: unknown) => {
@@ -24,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   try {
-    for await (const ev of runPacta({ mock: useMock })) {
+    for await (const ev of runPacta({ mock: useMock, scenario: scenarioParam })) {
       write(ev);
     }
     res.end();

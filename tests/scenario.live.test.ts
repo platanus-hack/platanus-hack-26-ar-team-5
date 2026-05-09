@@ -1,61 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { writeFileSync, mkdirSync } from "node:fs";
-import { bootAgents } from "../src/agents.js";
-import { buildEvidencePool } from "../src/fixtures.js";
-import { runNegotiation } from "../src/orchestrator.js";
 import { docHash, verifySignedDoc } from "../src/sign.js";
-import { makeClaudeDriver } from "../src/claude_driver.js";
+import { hash as hashOf } from "../src/canonical.js";
+import { runPacta } from "../src/pacta.js";
 import { loadEnv } from "../src/env.js";
 
 loadEnv();
 const HAS_KEY = !!process.env.ANTHROPIC_API_KEY;
 
 describe.skipIf(!HAS_KEY)("scenario live (Claude)", () => {
-  it("converges or escalates within 5 rounds, every message verifies", async () => {
-    const agents = bootAgents();
-    const pool = buildEvidencePool(agents);
-    const driver = makeClaudeDriver({
-      didByRole: { aria: agents.aria.did, atlas: agents.atlas.did },
-    });
+  it("ai-overrun converges or escalates within 5 rounds, signatures verify, bundle root_hash ok", async () => {
+    const events: any[] = [];
+    let bundle: any = null;
+    for await (const ev of runPacta({ scenario: "ai-overrun" })) {
+      events.push(ev);
+      if (ev.kind === "bundle") bundle = ev.bundle;
+    }
+    expect(bundle).not.toBeNull();
+    expect(bundle.scenario).toBe("ai-overrun");
+    expect(["converged", "ruling", "deadline"]).toContain(bundle.outcome.kind);
 
-    const events: Array<{ kind: string; [k: string]: unknown }> = [];
-    const gen = runNegotiation(agents, pool, driver, {
-      maxRounds: 5,
-      deadlockEpsilon: 0.05,
-      deadlockFlatRounds: 2,
-    });
-    let result: Awaited<ReturnType<typeof gen.next>>;
-    do {
-      result = await gen.next();
-      if (!result.done) events.push(result.value);
-    } while (!result.done);
-
-    expect(["converged", "escalation", "deadline"]).toContain(result.value.outcome.kind);
-
-    // Every signed message verifies
-    for (const m of result.value.history) {
-      expect(verifySignedDoc(m), `msg ${docHash(m)} should verify`).toBe(true);
-      // Every evidence_ref must point to a real evidence item
-      for (const h of m.evidence_refs) {
-        expect(pool.byHash.has(h), `evidence ${h} should be in pool`).toBe(true);
+    const poolHashes = new Set(bundle.evidence.map((e: any) => docHash(e)));
+    for (const m of bundle.messages) {
+      expect(verifySignedDoc(m), `msg ${docHash(m)} verifies`).toBe(true);
+      for (const ref of m.evidence_refs) {
+        expect(poolHashes.has(ref), `evidence ref ${ref} in pool`).toBe(true);
       }
     }
+    const { root_hash, ...rest } = bundle;
+    expect(hashOf(rest)).toBe(root_hash);
 
-    // Persist the run for inspection
     mkdirSync("tmp", { recursive: true });
-    writeFileSync(
-      "tmp/last-run.json",
-      JSON.stringify(
-        {
-          agents: { aria: agents.aria.did, atlas: agents.atlas.did },
-          evidence: pool.signed,
-          messages: result.value.history,
-          outcome: result.value.outcome,
-          events,
-        },
-        null,
-        2,
-      ),
-    );
-  }, 120_000);
+    writeFileSync("tmp/last-run.json", JSON.stringify(bundle, null, 2));
+  }, 180_000);
 });

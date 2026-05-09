@@ -7,6 +7,9 @@
     },
     "api/health.ts": {
       "runtime": "nodejs22.x"
+    },
+    "api/scenarios.ts": {
+      "runtime": "nodejs22.x"
     }
   },
   "rewrites": [

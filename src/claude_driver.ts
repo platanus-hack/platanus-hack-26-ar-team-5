@@ -3,43 +3,37 @@ import type { LLMDriver, MessageBody } from "./orchestrator.js";
 import type { SignedEvidence, SignedMessage } from "./types.js";
 import { docHash } from "./sign.js";
 import { getClient, MODELS } from "./anthropic.js";
-import { ARIA_SYSTEM, ATLAS_SYSTEM, TOOLS } from "./prompts.js";
-
-const SYSTEM_BY_ROLE = {
-  aria: ARIA_SYSTEM,
-  atlas: ATLAS_SYSTEM,
-} as const;
+import { TOOLS } from "./prompts.js";
+import type { Scenario } from "./scenarios/types.js";
 
 function evidenceCatalog(evidence: SignedEvidence[]): string {
   return evidence
-    .map((e) => {
-      return [
+    .map((e) =>
+      [
         `- evidence_id: ${e.evidence_id}`,
         `  hash: ${docHash(e)}`,
         `  tier: ${e.tier}`,
         `  submitter: ${e.submitter}`,
         `  title: ${e.title}`,
         `  body: ${e.body}`,
-      ].join("\n");
-    })
+      ].join("\n"),
+    )
     .join("\n\n");
 }
 
 function historyTranscript(history: SignedMessage[]): string {
   if (history.length === 0) return "(no prior messages — you open the negotiation)";
   return history
-    .map((m, i) => {
-      const h = docHash(m);
-      const lines = [
-        `[${i + 1}] ${m.type}  hash: ${h}`,
+    .map((m, i) =>
+      [
+        `[${i + 1}] ${m.type}  hash: ${docHash(m)}`,
         `    from: ${m.from_agent}`,
         `    round: ${m.round}`,
         `    evidence_refs: ${JSON.stringify(m.evidence_refs)}`,
         `    parent_refs:   ${JSON.stringify(m.parent_refs)}`,
         `    payload: ${JSON.stringify(m.payload)}`,
-      ];
-      return lines.join("\n");
-    })
+      ].join("\n"),
+    )
     .join("\n\n");
 }
 
@@ -49,11 +43,16 @@ function buildUserPrompt(args: {
   round: number;
   history: SignedMessage[];
   evidence: SignedEvidence[];
+  scenario: Scenario;
+  rejection_feedback?: string[];
 }): string {
   const ownEvidence = args.evidence.filter((e) => e.submitter === args.did);
   const otherEvidence = args.evidence.filter((e) => e.submitter !== args.did);
-  return [
-    `## Round ${args.round}. It is your turn (${args.role}).`,
+  const sections: string[] = [
+    `## Round ${args.round}. It is your turn (${args.scenario.agents[args.role].display_name}).`,
+    ``,
+    `## Case`,
+    args.scenario.case_summary,
     ``,
     `## Your DID`,
     args.did,
@@ -67,11 +66,17 @@ function buildUserPrompt(args: {
     `## Message history`,
     historyTranscript(args.history),
     ``,
-    `## Instruction`,
-    `Emit exactly one message via a tool call. Pick the most strategic primitive.`,
-    `Remember: compromise bound (utility_for_self ≤ your previous), reveal monotonicity,`,
-    `evidence/parent refs must be exact sha256:... hashes from above.`,
-  ].join("\n");
+  ];
+  if (args.rejection_feedback && args.rejection_feedback.length > 0) {
+    sections.push(`## ⚠ Your previous attempt(s) this turn were REJECTED. Fix it.`);
+    for (const r of args.rejection_feedback) sections.push(`- ${r}`);
+    sections.push(``);
+  }
+  sections.push(`## Instruction`);
+  sections.push(`Emit exactly one message via a tool call. Pick the most strategic primitive.`);
+  sections.push(`Remember: compromise bound (utility_for_self ≤ your previous), reveal monotonicity,`);
+  sections.push(`evidence/parent refs must be exact sha256:... hashes from above.`);
+  return sections.join("\n");
 }
 
 type ToolName =
@@ -137,9 +142,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
-        payload: {
-          target_msg_hash: String(input.target_msg_hash ?? ""),
-        },
+        payload: { target_msg_hash: String(input.target_msg_hash ?? "") },
       };
     case "reveal":
       return {
@@ -171,6 +174,7 @@ function toolToBody(args: {
 
 export type ClaudeDriverOptions = {
   model?: string;
+  scenario: Scenario;
   didByRole: Record<"aria" | "atlas", string>;
 };
 
@@ -180,13 +184,15 @@ export function makeClaudeDriver(opts: ClaudeDriverOptions): LLMDriver {
     async emit(input) {
       const client = getClient();
       const did = opts.didByRole[input.role];
-      const sys = SYSTEM_BY_ROLE[input.role];
+      const sys = opts.scenario.agents[input.role].system_prompt;
       const userPrompt = buildUserPrompt({
         role: input.role,
         did,
         round: input.round,
         history: input.history,
         evidence: input.evidence,
+        scenario: opts.scenario,
+        rejection_feedback: input.rejection_feedback,
       });
 
       const resp = await client.messages.create({
@@ -198,7 +204,6 @@ export function makeClaudeDriver(opts: ClaudeDriverOptions): LLMDriver {
         messages: [{ role: "user", content: userPrompt }],
       });
 
-      // Find the first tool_use block
       for (const block of resp.content) {
         if (block.type === "tool_use") {
           const toolName = block.name as ToolName;
@@ -217,4 +222,3 @@ export function makeClaudeDriver(opts: ClaudeDriverOptions): LLMDriver {
     },
   };
 }
-

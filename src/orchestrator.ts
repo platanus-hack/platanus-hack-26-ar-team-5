@@ -25,6 +25,8 @@ export interface LLMDriver {
     round: number;
     history: SignedMessage[];
     evidence: SignedEvidence[];
+    /** When non-empty, the previous attempt was rejected with these reasons. */
+    rejection_feedback?: string[];
   }): Promise<MessageBody>;
 }
 
@@ -151,6 +153,7 @@ export async function* runNegotiation(
       const agent = agents[role];
       let attempt = 0;
       let accepted = false;
+      const feedback: string[] = [];
       while (attempt < 2 && !accepted) {
         attempt++;
         const body = await driver.emit({
@@ -158,7 +161,15 @@ export async function* runNegotiation(
           round,
           history,
           evidence: evidence.signed,
+          rejection_feedback: feedback.length > 0 ? [...feedback] : undefined,
         });
+
+        // Helper closures within this iteration — they capture round/role/attempt
+        // and push the reason into `feedback` so the next attempt's prompt sees it.
+        const reject = (reason: string) => {
+          feedback.push(reason);
+          return reason;
+        };
 
         // Validate: from_agent must match
         if (body.from_agent !== agent.did) {
@@ -166,7 +177,7 @@ export async function* runNegotiation(
             kind: "message.rejected",
             round,
             role,
-            reason: `from_agent mismatch (got ${body.from_agent}, expected ${agent.did})`,
+            reason: reject(`from_agent mismatch (got ${body.from_agent}, expected ${agent.did})`),
             attempt,
           };
           continue;
@@ -178,7 +189,7 @@ export async function* runNegotiation(
             kind: "message.rejected",
             round,
             role,
-            reason: `round mismatch (got ${body.round}, expected ${round})`,
+            reason: reject(`round mismatch (got ${body.round}, expected ${round})`),
             attempt,
           };
           continue;
@@ -191,7 +202,7 @@ export async function* runNegotiation(
             kind: "message.rejected",
             round,
             role,
-            reason: `evidence_refs not in pool: ${missingEvidence.join(", ")}`,
+            reason: reject(`evidence_refs not in pool: ${missingEvidence.join(", ")}`),
             attempt,
           };
           continue;
@@ -206,7 +217,7 @@ export async function* runNegotiation(
             kind: "message.rejected",
             round,
             role,
-            reason: `parent_refs unknown: ${missingParents.join(", ")}`,
+            reason: reject(`parent_refs unknown: ${missingParents.join(", ")}`),
             attempt,
           };
           continue;
@@ -220,7 +231,9 @@ export async function* runNegotiation(
               kind: "message.rejected",
               round,
               role,
-              reason: `compromise bound violated (new utility ${body.payload.utility_for_self} > prior ${last})`,
+              reason: reject(
+                `compromise bound violated: utility_for_self=${body.payload.utility_for_self} but your previous utility was ${last}; the new value MUST be ≤ that.`,
+              ),
               attempt,
             };
             continue;
@@ -234,7 +247,9 @@ export async function* runNegotiation(
               kind: "message.rejected",
               round,
               role,
-              reason: `reveal monotonicity violated: domain '${body.payload.domain}' already revealed by ${agent.did}`,
+              reason: reject(
+                `reveal monotonicity violated: domain '${body.payload.domain}' already revealed by you. Pick a different domain or skip Reveal.`,
+              ),
               attempt,
             };
             continue;
@@ -253,7 +268,9 @@ export async function* runNegotiation(
               kind: "message.rejected",
               round,
               role,
-              reason: `Accept points at unknown proposal hash ${target}`,
+              reason: reject(
+                `Accept must target the sha256 hash of a prior Propose or CounterPropose message; '${target}' is not one. Re-pick the hash from history.`,
+              ),
               attempt,
             };
             continue;
@@ -273,7 +290,7 @@ export async function* runNegotiation(
             kind: "message.rejected",
             round,
             role,
-            reason: "internal: self-signed verification failed",
+            reason: reject("internal: self-signed verification failed"),
             attempt,
           };
           continue;

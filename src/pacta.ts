@@ -1,15 +1,23 @@
 import { hash as hashOf } from "./canonical.js";
 import { bootAgents } from "./agents.js";
 import { buildEvidencePool } from "./fixtures.js";
-import { runNegotiation, type LLMDriver, type OrchestratorConfig, type OrchestratorEvent } from "./orchestrator.js";
+import {
+  runNegotiation,
+  type LLMDriver,
+  type OrchestratorConfig,
+  type OrchestratorEvent,
+} from "./orchestrator.js";
 import { makeClaudeDriver } from "./claude_driver.js";
 import { makeMockDriver } from "./mock_driver.js";
 import { deliberate } from "./jury.js";
 import type { Bundle, SignedRuling, SignedVote } from "./types.js";
 import { docHash } from "./sign.js";
+import { getScenario, listScenarios, type Scenario } from "./scenarios/index.js";
 
 export type RunOptions = {
-  scenario?: "ai-overrun";
+  /** Scenario id (e.g. "ai-overrun", "oncology"). Defaults to ai-overrun. */
+  scenario?: string;
+  /** Override the LLM driver (advanced). */
   driver?: LLMDriver;
   /** If true, use the deterministic mock driver instead of Claude. */
   mock?: boolean;
@@ -17,6 +25,7 @@ export type RunOptions = {
 };
 
 export type StreamEvent =
+  | { kind: "scenario.selected"; scenario: { id: string; name: string; case_summary: string } }
   | OrchestratorEvent
   | { kind: "jury.start" }
   | { kind: "jury.vote"; vote: SignedVote }
@@ -27,13 +36,20 @@ export type StreamEvent =
  * High-level Pacta entry point. Yields a stream of events, ending with a Bundle.
  */
 export async function* runPacta(options: RunOptions = {}): AsyncGenerator<StreamEvent, Bundle, void> {
+  const scenario: Scenario = getScenario(options.scenario);
+  yield {
+    kind: "scenario.selected",
+    scenario: { id: scenario.id, name: scenario.name, case_summary: scenario.case_summary },
+  };
+
   const agents = bootAgents();
-  const pool = buildEvidencePool(agents);
+  const pool = buildEvidencePool(agents, scenario);
 
   const driver =
     options.driver ??
     (options.mock
       ? makeMockDriver({
+          scenario,
           ariaDid: agents.aria.did,
           atlasDid: agents.atlas.did,
           ariaEvidenceHashes: pool.signed
@@ -43,7 +59,10 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
             .filter((e) => e.submitter === agents.atlas.did)
             .map((e) => docHash(e)),
         })
-      : makeClaudeDriver({ didByRole: { aria: agents.aria.did, atlas: agents.atlas.did } }));
+      : makeClaudeDriver({
+          scenario,
+          didByRole: { aria: agents.aria.did, atlas: agents.atlas.did },
+        }));
 
   const config = {
     maxRounds: 5,
@@ -85,10 +104,9 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
     bundleOutcome = { kind: "deadline" };
   }
 
-  // Build bundle (root_hash computed over the bundle minus root_hash itself)
   const bundleNoHash: Omit<Bundle, "root_hash"> = {
     type: "Bundle",
-    scenario: options.scenario ?? "ai-overrun",
+    scenario: scenario.id,
     agents: {
       aria: agents.aria.did,
       atlas: agents.atlas.did,
@@ -108,4 +126,4 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
   return bundle;
 }
 
-export { docHash };
+export { docHash, listScenarios, getScenario };

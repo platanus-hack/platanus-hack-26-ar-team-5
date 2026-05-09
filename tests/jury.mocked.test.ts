@@ -50,7 +50,8 @@ describe("jury (mocked)", () => {
   it("aggregates 3 votes into a signed ruling with majority outcome", async () => {
     const { deliberate } = await import("../src/jury.js");
     const agents = bootAgents();
-    const pool = buildEvidencePool(agents);
+    const { aiOverrun } = await import("../src/scenarios/ai-overrun.js");
+    const pool = buildEvidencePool(agents, aiOverrun);
     const result = await deliberate({ agents, evidence: pool, history: [] });
 
     expect(result.votes).toHaveLength(3);

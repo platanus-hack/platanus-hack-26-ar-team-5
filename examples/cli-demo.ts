@@ -2,9 +2,28 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import pc from "picocolors";
 import { loadEnv } from "../src/env.js";
-import { runPacta } from "../src/pacta.js";
+import { runPacta, listScenarios, getScenario } from "../src/pacta.js";
 
 loadEnv();
+
+function parseScenarioFlag(): string | undefined {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--scenario" || a === "-s") return args[i + 1];
+    if (a.startsWith("--scenario=")) return a.split("=", 2)[1];
+  }
+  return process.env.PACTA_SCENARIO;
+}
+
+if (process.argv.includes("--list") || process.argv.includes("-l")) {
+  console.log(pc.bold("Available scenarios:"));
+  for (const s of listScenarios()) {
+    console.log(`  ${pc.cyan(s.id.padEnd(14))}  ${s.name}`);
+    console.log(pc.gray(`    ${s.description}`));
+  }
+  process.exit(0);
+}
 
 function shortHash(h: string): string {
   return h.length > 18 ? `${h.slice(0, 14)}…${h.slice(-2)}` : h;
@@ -14,13 +33,16 @@ function shortDid(d: string): string {
   return d.length > 30 ? `${d.slice(0, 15)}…${d.slice(-6)}` : d;
 }
 
-const ROLE_TAG: Record<string, string> = {
-  aria: pc.cyan("Aria  "),
-  atlas: pc.magenta("Atlas "),
-  tribunal: pc.yellow("Tribu "),
-};
+function roleTag(scenarioId: string, role: string): string {
+  const sc = getScenario(scenarioId);
+  if (role === "aria") return pc.cyan(sc.agents.aria.short_label);
+  if (role === "atlas") return pc.magenta(sc.agents.atlas.short_label);
+  if (role === "tribunal") return pc.yellow("Tribu ");
+  return role;
+}
 
-function banner() {
+function banner(scenarioId: string) {
+  const sc = getScenario(scenarioId);
   console.log("");
   console.log(pc.bold(pc.white("╭──────────────────────────────────────────────────────────────────╮")));
   console.log(
@@ -28,9 +50,8 @@ function banner() {
       pc.bold(pc.white("  Pacta — Trust protocol for AI agents in dispute             ")) +
       pc.bold(pc.white("│")),
   );
-  console.log(
-    pc.bold(pc.white("│  Case: AI inference cost overrun (Aria @ Customer ↔ Atlas @ Provider)")),
-  );
+  console.log(pc.bold(pc.white(`│  Scenario: ${sc.name}`)));
+  console.log(pc.gray(`│  ${sc.description}`));
   console.log(
     pc.bold(pc.white("╰──────────────────────────────────────────────────────────────────╯")),
   );
@@ -42,7 +63,16 @@ function fmtState(state: { credit_usd: number; terms: string }): string {
 }
 
 async function main() {
-  banner();
+  const scenarioId = parseScenarioFlag() ?? "ai-overrun";
+  // Validate early
+  try {
+    getScenario(scenarioId);
+  } catch (err) {
+    console.error(pc.red((err as Error).message));
+    console.error(pc.gray("Run with --list to see available scenarios."));
+    process.exit(2);
+  }
+  banner(scenarioId);
 
   const useMock = process.env.PACTA_MOCK === "1" || process.argv.includes("--mock");
 
@@ -71,10 +101,12 @@ async function main() {
   let bundle: Awaited<ReturnType<typeof runPacta>> extends AsyncGenerator<infer _E, infer R, infer __> ? R : never;
   // ^ tighter typing not needed for cli; use any
 
-  for await (const ev of runPacta({ mock })) {
+  for await (const ev of runPacta({ mock, scenario: scenarioId })) {
     switch (ev.kind) {
+      case "scenario.selected":
+        break;
       case "agent.boot":
-        console.log(`  ✓ ${ROLE_TAG[ev.role] ?? ev.role}  ${shortDid(ev.did)}`);
+        console.log(`  ✓ ${roleTag(scenarioId, ev.role)}  ${shortDid(ev.did)}`);
         break;
       case "evidence.loaded":
         console.log("");
@@ -93,12 +125,12 @@ async function main() {
         break;
       case "message.rejected":
         console.log(
-          `  ${pc.red("✗")} ${ROLE_TAG[ev.role] ?? ev.role}  ${pc.red("rejected")}  ${pc.gray("attempt " + ev.attempt + ":")} ${ev.reason}`,
+          `  ${pc.red("✗")} ${roleTag(scenarioId, ev.role)}  ${pc.red("rejected")}  ${pc.gray("attempt " + ev.attempt + ":")} ${ev.reason}`,
         );
         break;
       case "message.accepted": {
         const m = ev.signed;
-        const tag = ROLE_TAG[ev.role] ?? ev.role;
+        const tag = roleTag(scenarioId, ev.role);
         const head = `  ${pc.green("▶")} ${tag} ${pc.bold(m.type.padEnd(18))}  ${pc.gray(shortHash(ev.hash))}  ${pc.green("Ed25519 ✓")}`;
         console.log(head);
         if (m.type === "Propose" || m.type === "CounterPropose") {

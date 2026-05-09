@@ -1,6 +1,6 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { NextApiRequest, NextApiResponse } from "next";
 
-export default function handler(_req: VercelRequest, res: VercelResponse) {
+export default function handler(_req: NextApiRequest, res: NextApiResponse) {
   res.status(200).json({
     ok: true,
     name: "pacta",

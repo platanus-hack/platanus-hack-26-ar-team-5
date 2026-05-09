@@ -148,11 +148,23 @@ Pacta is also exposed as a [Model Context Protocol](https://modelcontextprotocol
 
 **Tools available today:**
 
+*Phase 1 — Pacta-runs-both-sides (stateless):*
+
 | Tool | Purpose |
 |---|---|
 | `list_scenarios` | Discover the 6 bundled disputes |
 | `run_scenario({ scenario_id, mock? })` | Run a full Pacta dispute end-to-end and return the signed Bundle (evidence, messages, ruling if any, root_hash). `mock: true` for an instant deterministic replay. |
 | `verify_bundle({ bundle })` | Independently re-verify every Ed25519 signature and the root hash on a Pacta Bundle. |
+
+*Phase 2 — BYO-agents (stateful within a session):*
+
+| Tool | Purpose |
+|---|---|
+| `open_dispute({ scenario_id, your_role, counterparty_external? })` | Open a dispute as one of the two roles. Returns `dispute_id`, your role token, your `did:key`, the counterparty DID, and the evidence pool with sha256 hashes. By default, Pacta drives the counterparty with Claude after each of your turns; set `counterparty_external: true` if a second MCP client is playing the other role. |
+| `submit_message({ dispute_id, role_token, message })` | Submit a `Propose` / `Critique` / `CounterPropose` / `Accept` / `Reveal` / `Escalate` for your role. Pacta validates against the protocol (compromise bound, reveal monotonicity, evidence-ref existence, Accept-target validity), signs with the role's keypair, then drives any consecutive Claude turns before yielding back. |
+| `get_dispute({ dispute_id })` | Poll the public state — turn pointer, round, full signed history, pending rejection feedback, and the finalized bundle once converged or ruled. |
+
+State persists in `globalThis` for the lifetime of a warm Vercel instance — sufficient for a single demo session that runs in seconds-to-minutes. For multi-instance or long-lived disputes, swap to Vercel KV (one-line change in `src/dispute_store.ts`).
 
 **Connect from Claude Desktop / Claude Code** — add to the relevant `claude_desktop_config.json` (or equivalent):
 

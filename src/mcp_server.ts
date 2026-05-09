@@ -75,14 +75,17 @@ The server resolves all three forms to canonical sha256 before signing — the a
 - **Critique** payload requires \`target_msg_hash\` (use \`mN\`).
 - Rejected messages return a \`pending_feedback\` string echoing the valid refs. Read it and self-correct on the next attempt — you have one retry per turn.
 
-# Convergence rule — the cross-accept trap (read this twice)
-**Convergence requires BOTH parties to Accept the SAME \`target_msg_hash\`.** Two Accepts on different targets do NOT converge — even if both target proposals have substantively identical terms. This is by design (the bundle's \`accepted_msg_hash\` must be a single canonical document) but it's a real footgun:
-- Aria CounterProposes m5 → Atlas Accept(m5). Atlas CounterProposed m4 → Aria Accept(m4). **Not converged.** Each side accepted the other's last CounterPropose, but they're different hashes.
-- Fix: when you decide to Accept, look at the latest CounterPropose by the COUNTERPARTY (not your own) and Accept THAT. The other side will then Accept the same one. Both Accepts on the same target → converged.
-- If you're already in a cross-accept state (your Accept and theirs target different hashes), restate the agreed terms in a fresh CounterPropose so both sides can Accept the same fresh anchor — but this costs a round, so the better move is to converge on the counterparty's CP directly.
+# Convergence rule — sequential Accept (now ENFORCED, not just guidance)
+**Convergence requires BOTH parties to Accept the SAME \`target_msg_hash\`.** Two Accepts on different targets do NOT converge — even if both target proposals have substantively identical terms. The bundle's \`accepted_msg_hash\` must be a single canonical document.
+
+To prevent the "cross-accept trap" the orchestrator now ENFORCES sequential Accepts:
+- If the counterparty's most recent move was \`Accept(T)\`, your only valid \`Accept\` is also on \`T\` (which converges the dispute).
+- Accepting a DIFFERENT target → server REJECTS your message with \`pending_feedback\` echoing \`T\`. Read it and either (a) Accept \`T\`, or (b) submit a CounterPropose / Critique / Escalate to keep the negotiation open. Real negotiations are linear: respond to the LATEST move from the other side, not a stale earlier one.
+
+This means: when you decide to "say yes", look at the counterparty's MOST RECENT move. If it's a CounterPropose, Accept it. If it's an Accept, match it. Don't reach back to a stale offer.
 
 # Self-Accept
-You CAN Accept a CounterPropose you authored — useful only as the convergence-anchor pattern above (you re-state agreed terms in a CP, then both you and the counterparty Accept it). In a normal flow, prefer Accepting the counterparty's CP.
+You CAN Accept a CounterPropose you authored — useful as a convergence-anchor pattern (you re-state agreed terms in a CP, then both you and the counterparty Accept it). In a normal flow, prefer Accepting the counterparty's CP — it's one fewer turn.
 
 # Payload shapes
 - Propose / CounterPropose: \`{ state: { credit_usd, terms }, rationale, utility_for_self }\` — \`credit_usd\` is 0 for non-monetary disputes; \`terms\` is the deliberation text.

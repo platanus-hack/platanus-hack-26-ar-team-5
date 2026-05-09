@@ -210,6 +210,37 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
     );
     if (!found)
       return `Accept must target a prior Propose or CounterPropose; '${target}' resolves to a non-proposal message.`;
+
+    // Sequential-Accept rule: real negotiations are linear. Once the
+    // counterparty has Accepted a target, your only valid Accept is on the
+    // SAME target (which converges) — Accepting a different target would
+    // create competing endorsements in the audit graph and leave the deal
+    // ambiguous from a third-party reviewer's perspective. If you don't want
+    // to converge on what they Accepted, submit a CounterPropose / Critique /
+    // Escalate to keep the negotiation open.
+    const counterpartyDid = state.agents[role === "aria" ? "atlas" : "aria"].did;
+    let lastCounterMove: SignedMessage | undefined;
+    for (let i = state.history.length - 1; i >= 0; i--) {
+      const m = state.history[i]!;
+      if (m.from_agent === counterpartyDid) {
+        lastCounterMove = m;
+        break;
+      }
+    }
+    if (lastCounterMove && lastCounterMove.type === "Accept") {
+      const cpTarget = (lastCounterMove as AcceptMsg).payload.target_msg_hash;
+      if (cpTarget !== target) {
+        const cpIdx = state.history.indexOf(lastCounterMove);
+        const cpRef = `m${cpIdx + 1}`;
+        return (
+          `cross-accept rejected. Counterparty's most recent move (${cpRef}) was Accept(${cpTarget.slice(0, 26)}…). ` +
+          `Your Accept must target the SAME hash to converge — Accepting a different proposal creates competing endorsements that never converge ` +
+          `and leaves the audit graph ambiguous. ` +
+          `Either Accept ${cpTarget.slice(0, 26)}… (which converges the dispute), or submit a CounterPropose / Critique / Escalate to keep negotiating. ` +
+          `If your Accept was an attempt to lock in DIFFERENT terms, restate them as a fresh CounterPropose so both sides can subsequently Accept the same anchor.`
+        );
+      }
+    }
   }
   return null;
 }

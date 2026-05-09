@@ -365,6 +365,40 @@ export async function* runNegotiation(
             };
             continue;
           }
+
+          // Sequential-Accept rule: when the counterparty has just Accepted a
+          // target, your Accept MUST target the same hash. Accepting a
+          // different target creates competing endorsements that never
+          // converge and leave the bundle's outcome ambiguous from an
+          // auditor's perspective. To reject what they Accepted, submit a
+          // CounterPropose / Critique / Escalate instead.
+          const counterpartyDid =
+            agents[role === "aria" ? "atlas" : "aria"].did;
+          let lastCounterMove: SignedMessage | undefined;
+          for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i]!.from_agent === counterpartyDid) {
+              lastCounterMove = history[i];
+              break;
+            }
+          }
+          if (lastCounterMove && lastCounterMove.type === "Accept") {
+            const cpTarget = (lastCounterMove as AcceptMsg).payload.target_msg_hash;
+            if (cpTarget !== target) {
+              const cpIdx = history.indexOf(lastCounterMove);
+              yield {
+                kind: "message.rejected",
+                round,
+                role,
+                reason: reject(
+                  `cross-accept rejected. Counterparty's most recent move (m${cpIdx + 1}) was Accept(${cpTarget.slice(0, 26)}…). ` +
+                    `Your Accept must target the SAME hash to converge. ` +
+                    `Either Accept ${cpTarget.slice(0, 26)}…, or submit a CounterPropose / Critique to keep negotiating.`,
+                ),
+                attempt,
+              };
+              continue;
+            }
+          }
         }
 
         // Sign and accept

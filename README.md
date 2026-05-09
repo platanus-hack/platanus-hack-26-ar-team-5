@@ -130,17 +130,52 @@ The same library is exposed as Vercel serverless functions:
 
 ```bash
 # health probe
-curl https://<your-deploy>.vercel.app/api/health
+curl https://platanus-hack-26-ar-team-5.vercel.app/api/health
 
 # scenario registry
-curl https://<your-deploy>.vercel.app/api/scenarios
+curl https://platanus-hack-26-ar-team-5.vercel.app/api/scenarios
 
 # run a negotiation — NDJSON streams back, one event per line
-curl -N -X POST 'https://<your-deploy>.vercel.app/api/negotiation?scenario=oncology' \
+curl -N -X POST 'https://platanus-hack-26-ar-team-5.vercel.app/api/negotiation?scenario=oncology' \
   -H 'content-type: application/json' -d '{}'
 ```
 
 Query params: `?mock=1` to force the deterministic driver, `?scenario=<id>` to pick a scenario (defaults to `ai-overrun`). Same params can also live in the JSON body.
+
+### Pacta as an MCP server
+
+Pacta is also exposed as a [Model Context Protocol](https://modelcontextprotocol.io) server at `/api/mcp` (Streamable HTTP transport, stateless). Any MCP client can connect: Claude Desktop, Claude Code, Cursor, MCP Inspector, custom agents.
+
+**Tools available today:**
+
+| Tool | Purpose |
+|---|---|
+| `list_scenarios` | Discover the 6 bundled disputes |
+| `run_scenario({ scenario_id, mock? })` | Run a full Pacta dispute end-to-end and return the signed Bundle (evidence, messages, ruling if any, root_hash). `mock: true` for an instant deterministic replay. |
+| `verify_bundle({ bundle })` | Independently re-verify every Ed25519 signature and the root hash on a Pacta Bundle. |
+
+**Connect from Claude Desktop / Claude Code** — add to the relevant `claude_desktop_config.json` (or equivalent):
+
+```json
+{
+  "mcpServers": {
+    "pacta": {
+      "url": "https://platanus-hack-26-ar-team-5.vercel.app/api/mcp"
+    }
+  }
+}
+```
+
+Then, in chat: *"Use Pacta to run the cve-disclosure scenario and tell me what the agents agreed on."* The model calls `run_scenario`, narrates the negotiation, and you can ask it to verify the bundle's signatures with `verify_bundle`.
+
+**Test from the command line** — JSON-RPC over HTTP, SSE response:
+
+```bash
+curl -sS -X POST https://platanus-hack-26-ar-team-5.vercel.app/api/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
 
 ---
 

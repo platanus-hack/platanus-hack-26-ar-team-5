@@ -43,8 +43,10 @@ export type DisputeState = {
    * inside this server when the role's turn comes up.
    */
   controllers: Record<AgentRole, "external" | "claude">;
-  /** Per-role bearer tokens issued at open_dispute. */
+  /** Per-role bearer tokens issued at open/join. */
   role_tokens: Record<AgentRole, string>;
+  /** Whether each external role has been claimed yet (first-come-first-served). */
+  claimed: Record<AgentRole, boolean>;
   /** Round-robin turn pointer — whose turn to act next. */
   turn: AgentRole;
   current_round: number;
@@ -97,6 +99,10 @@ export type OpenDisputeResult = {
    * Claude after each external submission.
    */
   counterparty_external: boolean;
+  /** When counterparty_external=true, the second role's token is included so the
+   *  opener can hand it to the other client. In production this would be a
+   *  separate `join_dispute` flow; for the demo this is the simplest UX. */
+  counterparty_token?: string;
   next_to_act: AgentRole;
   current_round: number;
 };
@@ -127,6 +133,11 @@ export function openDispute(args: {
     aria: randId("tok"),
     atlas: randId("tok"),
   };
+  // The opener claims their own role; the other external slot stays open until joined.
+  const claimed: Record<AgentRole, boolean> = {
+    aria: controllers.aria === "external" && your_role === "aria",
+    atlas: controllers.atlas === "external" && your_role === "atlas",
+  };
 
   const state: DisputeState = {
     dispute_id,
@@ -137,6 +148,7 @@ export function openDispute(args: {
     history: [],
     controllers,
     role_tokens,
+    claimed,
     turn: "aria",
     current_round: 1,
     max_rounds: args.max_rounds ?? 5,
@@ -166,6 +178,52 @@ export function openDispute(args: {
     counterparty_external,
     next_to_act: state.turn,
     current_round: state.current_round,
+  };
+}
+
+export type JoinDisputeResult = {
+  dispute_id: string;
+  scenario: Scenario;
+  agents: { aria: string; atlas: string; tribunal: string };
+  evidence_summary: Array<{ id: string; tier: string; submitter: string; hash: string }>;
+  your_role: AgentRole;
+  your_token: string;
+  your_did: string;
+  counterparty_did: string;
+  next_to_act: AgentRole;
+  current_round: number;
+};
+
+/** Claim an externally-controlled role on an existing dispute. First-come-first-served. */
+export function joinDispute(args: { dispute_id: string; role: AgentRole }): JoinDisputeResult {
+  const s = store().get(args.dispute_id);
+  if (!s) throw new Error(`unknown dispute: ${args.dispute_id}`);
+  if (s.controllers[args.role] !== "external")
+    throw new Error(`role '${args.role}' is not externally controlled in this dispute`);
+  if (s.claimed[args.role])
+    throw new Error(`role '${args.role}' has already been claimed in this dispute`);
+  s.claimed[args.role] = true;
+  const other: AgentRole = args.role === "aria" ? "atlas" : "aria";
+  return {
+    dispute_id: s.dispute_id,
+    scenario: s.scenario,
+    agents: {
+      aria: s.agents.aria.did,
+      atlas: s.agents.atlas.did,
+      tribunal: s.agents.tribunal.did,
+    },
+    evidence_summary: s.evidence.signed.map((e) => ({
+      id: e.evidence_id,
+      tier: e.tier,
+      submitter: e.submitter,
+      hash: docHash(e),
+    })),
+    your_role: args.role,
+    your_token: s.role_tokens[args.role],
+    your_did: s.agents[args.role].did,
+    counterparty_did: s.agents[other].did,
+    next_to_act: s.turn,
+    current_round: s.current_round,
   };
 }
 

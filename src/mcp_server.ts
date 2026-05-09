@@ -18,7 +18,7 @@ import { z } from "zod";
 import { runPacta, listScenarios, getScenario } from "./pacta.js";
 import { verifySignedDoc, docHash } from "./sign.js";
 import { hash as hashOf } from "./canonical.js";
-import { openDispute, getDispute, dumpDispute } from "./dispute_store.js";
+import { openDispute, joinDispute, getDispute, dumpDispute } from "./dispute_store.js";
 import { submitExternalMessage, advanceClaudeTurns, publicState } from "./dispute_engine.js";
 import type { Bundle } from "./types.js";
 import type { MessageBody } from "./orchestrator.js";
@@ -232,6 +232,49 @@ export function buildPactaMcpServer(): McpServer {
                 `  next_to_act:          ${result.next_to_act}\n` +
                 `  current_round:        ${result.current_round}\n\n` +
                 `--- DETAILS ---\n${JSON.stringify(result, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { isError: true, content: [{ type: "text", text: (err as Error).message }] };
+      }
+    },
+  );
+
+  // ----- Phase 2: join_dispute ----------------------------------------------
+  server.registerTool(
+    "join_dispute",
+    {
+      description:
+        "Join an existing Pacta dispute as the second external agent. First-come-first-served per " +
+        "role. Returns your role_token, your DID, the counterparty DID, and the evidence pool. " +
+        "Use this when you receive a dispute_id from a peer who already called open_dispute. " +
+        "After this call, you can submit_message as your role.",
+      inputSchema: {
+        dispute_id: z.string(),
+        role: z
+          .enum(["aria", "atlas"])
+          .describe("The role you want to claim. Must be the externally-controlled role still unclaimed in this dispute."),
+      },
+    },
+    async ({ dispute_id, role }) => {
+      try {
+        const r = joinDispute({ dispute_id, role });
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Joined dispute.\n` +
+                `  dispute_id:        ${r.dispute_id}\n` +
+                `  scenario:          ${r.scenario.name}\n` +
+                `  your_role:         ${r.your_role}\n` +
+                `  your_did:          ${r.your_did}\n` +
+                `  your_token:        ${r.your_token}\n` +
+                `  counterparty_did:  ${r.counterparty_did}\n` +
+                `  next_to_act:       ${r.next_to_act}\n` +
+                `  current_round:     ${r.current_round}\n\n` +
+                `--- DETAILS ---\n${JSON.stringify(r, null, 2)}`,
             },
           ],
         };

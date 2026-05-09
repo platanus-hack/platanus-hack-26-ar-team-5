@@ -153,12 +153,12 @@ const mockScript: ScenarioMockStep[] = [
     },
   }),
   // R3 — convergence drafts
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes,
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: {
         credit_usd: 50000,
@@ -170,12 +170,12 @@ const mockScript: ScenarioMockStep[] = [
       utility_for_self: 0.79,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes,
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: {
         credit_usd: 50000,

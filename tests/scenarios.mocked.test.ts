@@ -42,9 +42,14 @@ describe("scenarios (mocked smoke)", () => {
           expect(poolHashes.has(ref), `${sc.id}: msg refs unknown evidence ${ref}`).toBe(true);
         }
       }
-      // Root hash matches
-      const { root_hash, ...rest } = bundle;
+      // Root hash matches. root_hash protects the bundle content (bundleNoHash);
+      // root_hash_jcs is a redundant transport-safe carrier of the canonical
+      // bytes that produced the hash, so it's also stripped before recomputing.
+      const { root_hash, root_hash_jcs, ...rest } = bundle;
       expect(hashOf(rest)).toBe(root_hash);
+      // The embedded JCS string must hash to the same value (transport-safe path).
+      expect(typeof root_hash_jcs).toBe("string");
+      expect(hashOf(JSON.parse(root_hash_jcs))).toBe(root_hash);
 
       // Either converged or escalated to ruling — but we expect convergence on the canonical scripts
       expect(["converged", "ruling", "deadline"]).toContain(bundle.outcome.kind);

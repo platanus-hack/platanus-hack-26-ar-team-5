@@ -135,33 +135,36 @@ describe("orchestrator (mocked) — happy path", () => {
         });
       },
       // Round 2
-      () =>
+      (h) =>
         ariaCounterBody({
           ariaDid: agents.aria.did,
           round: 2,
           utility: 0.88,
           state: { credit_usd: 150000, terms: "refund minus support fee" },
           evidenceHashes: ariaEvidence,
+          parents: [docHash(h[h.length - 1]!)],
         }),
-      () =>
+      (h) =>
         atlasCounterBody({
           atlasDid: agents.atlas.did,
           round: 2,
           utility: 0.86,
           state: { credit_usd: 45000, terms: "goodwill, no admission" },
           evidenceHashes: atlasEvidence,
+          parents: [docHash(h[h.length - 1]!)],
         }),
       // Round 3
-      () =>
+      (h) =>
         ariaCounterBody({
           ariaDid: agents.aria.did,
           round: 3,
           utility: 0.78,
           state: { credit_usd: 110000, terms: "credit + alerts auto-enrollment" },
           evidenceHashes: ariaEvidence,
+          parents: [docHash(h[h.length - 1]!)],
         }),
-      (h) => {
-        const cnt = atlasCounterBody({
+      (h) =>
+        atlasCounterBody({
           atlasDid: agents.atlas.did,
           round: 3,
           utility: 0.81,
@@ -170,11 +173,8 @@ describe("orchestrator (mocked) — happy path", () => {
             terms: "credit + alerts opt-in + eval API commit",
           },
           evidenceHashes: atlasEvidence,
-        });
-        // capture future hash by simulating: not possible until signed, so we'll
-        // pick it up after this turn via history search in subsequent script step
-        return cnt;
-      },
+          parents: [docHash(h[h.length - 1]!)],
+        }),
       // Round 4: both Accept the Atlas R3 proposal
       (h) => {
         const last = h[h.length - 1]!;
@@ -247,8 +247,9 @@ describe("orchestrator (mocked) — validation rejections", () => {
     // R1: Aria proposes utility 0.7. R1: Atlas counters. R2: Aria proposes utility 0.9 — must be rejected.
     let counter = 0;
     const driver: LLMDriver = {
-      async emit({ role, round }) {
+      async emit({ role, round, history }) {
         counter++;
+        const lastHash = history.length > 0 ? docHash(history[history.length - 1]!) : null;
         if (counter === 1)
           return ariaProposeBody({
             ariaDid: agents.aria.did,
@@ -264,6 +265,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
             utility: 0.7,
             state: { credit_usd: 0, terms: "x" },
             evidenceHashes: atlasEvidence,
+            parents: lastHash ? [lastHash] : [],
           });
         if (counter === 3)
           // r2 Aria proposes higher utility — should be rejected on attempt 1 + attempt 2
@@ -273,6 +275,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
             utility: 0.9, // BAD: > prior 0.7
             state: { credit_usd: 60000, terms: "x" },
             evidenceHashes: ariaEvidence,
+            parents: lastHash ? [lastHash] : [],
           });
         // After rejected aria, orchestrator continues with atlas turn (but aria's slot is empty);
         // emit something innocuous for whatever turn comes. Driver should not be reached as much.
@@ -282,6 +285,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
           utility: 0.65,
           state: { credit_usd: 30000, terms: "x" },
           evidenceHashes: atlasEvidence,
+          parents: lastHash ? [lastHash] : [],
         });
       },
     };
@@ -303,8 +307,9 @@ describe("orchestrator (mocked) — validation rejections", () => {
 
     let count = 0;
     const driver: LLMDriver = {
-      async emit({ round }) {
+      async emit({ round, history }) {
         count++;
+        const lastHash = history.length > 0 ? docHash(history[history.length - 1]!) : null;
         if (count === 1) {
           return {
             type: "Reveal",
@@ -322,6 +327,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
             utility: 0.9,
             state: { credit_usd: 0, terms: "x" },
             evidenceHashes: atlasEvidence,
+            parents: lastHash ? [lastHash] : [],
           });
         if (count === 3) {
           // Aria reveals same domain again — must be rejected
@@ -341,6 +347,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
           utility: 0.5,
           state: { credit_usd: 100, terms: "x" },
           evidenceHashes: ariaEvidence,
+          parents: lastHash ? [lastHash] : [],
         });
       },
     };

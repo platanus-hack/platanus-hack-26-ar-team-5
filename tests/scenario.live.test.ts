@@ -27,8 +27,13 @@ describe.skipIf(!HAS_KEY)("scenario live (Claude)", () => {
         expect(poolHashes.has(ref), `evidence ref ${ref} in pool`).toBe(true);
       }
     }
-    const { root_hash, ...rest } = bundle;
+    // root_hash protects the bundle content; root_hash_jcs is the canonical bytes
+    // (transport-safe). Both must be excluded when re-hashing the rest.
+    const { root_hash, root_hash_jcs, ...rest } = bundle;
     expect(hashOf(rest)).toBe(root_hash);
+    if (typeof root_hash_jcs === "string") {
+      expect(hashOf(JSON.parse(root_hash_jcs))).toBe(root_hash);
+    }
 
     mkdirSync("tmp", { recursive: true });
     writeFileSync("tmp/last-run.json", JSON.stringify(bundle, null, 2));

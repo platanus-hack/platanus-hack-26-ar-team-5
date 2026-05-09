@@ -1,4 +1,4 @@
-import { hash as hashOf } from "./canonical.js";
+import { hash as hashOf, canonicalize } from "./canonical.js";
 import { bootAgents } from "./agents.js";
 import { buildEvidencePool } from "./fixtures.js";
 import {
@@ -104,7 +104,7 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
     bundleOutcome = { kind: "deadline" };
   }
 
-  const bundleNoHash: Omit<Bundle, "root_hash"> = {
+  const bundleNoHash: Omit<Bundle, "root_hash" | "root_hash_jcs"> = {
     type: "Bundle",
     scenario: scenario.id,
     agents: {
@@ -120,6 +120,7 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
   const bundle: Bundle = {
     ...bundleNoHash,
     root_hash: hashOf(bundleNoHash),
+    root_hash_jcs: canonicalize(bundleNoHash),
   };
 
   yield { kind: "bundle", bundle };

@@ -150,24 +150,24 @@ const mockScript: ScenarioMockStep[] = [
     },
   }),
   // R3 — both inch toward middle but stay incompatible
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 0, terms: "Publication of core safety findings within 7 days; redactions of personal details about uninvolved individuals; the third (non-NDA) whistleblower named." },
       rationale: "Concedes redaction of personal details to protect privacy. Cannot delay further; recall preparation may take months — the public-interest window is now.",
       utility_for_self: 0.78,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 0, terms: "Publication ONLY after voluntary recall announcement (T+30 days); full redaction of all named individuals; corporation reviews piece for material misrepresentations only." },
       rationale: "Concedes acknowledgment that publication will eventually happen. Aligns it with the recall so consumer-safety message is unified. Protects all named individuals.",
@@ -175,24 +175,24 @@ const mockScript: ScenarioMockStep[] = [
     },
   }),
   // R4 — last attempts, neither will yield to the other's frame
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 4,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 0, terms: "Publication within 14 days; redactions of personal details only; at least the non-NDA whistleblower may be named; no editorial review by Argo." },
       rationale: "Compromise on timing by 7 days. Compromise on redactions of uninvolved individuals. Cannot allow Argo editorial review — that would compromise newsroom independence.",
       utility_for_self: 0.65,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 4,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 0, terms: "Publication post-recall (T+30 days). All named individuals redacted. Corporation legal review of material claims only." },
       rationale: "We will not accept publication that names any individual; we will not accept publication before the recall. Below this is litigation territory for us.",
@@ -200,24 +200,24 @@ const mockScript: ScenarioMockStep[] = [
     },
   }),
   // R5 — same impasse
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 5,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 0, terms: "Publication within 14 days; redactions of personal details only; non-NDA whistleblower named." },
       rationale: "We're at our reservation. Cannot accept a 30-day delay; that runs the public-interest window into the recall and renders the story stale.",
       utility_for_self: 0.55,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 5,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 0, terms: "Publication T+30, all named individuals redacted." },
       rationale: "We're at our reservation; below this we file for injunction.",

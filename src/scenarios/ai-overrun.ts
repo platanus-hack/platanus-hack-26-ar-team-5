@@ -132,12 +132,12 @@ const mockScript: ScenarioMockStep[] = [
     },
   }),
   // R3
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes,
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 110000, terms: "credit + auto-enrollment in regression alerts" },
       rationale:
@@ -145,12 +145,12 @@ const mockScript: ScenarioMockStep[] = [
       utility_for_self: 0.78,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes,
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: {
         credit_usd: 90000,

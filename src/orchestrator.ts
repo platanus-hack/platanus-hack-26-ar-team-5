@@ -2,6 +2,12 @@ import type { AgentBook, AgentRole } from "./agents.js";
 import type { EvidencePool } from "./fixtures.js";
 import { signDoc, docHash, verifySignedDoc } from "./sign.js";
 import { hash as hashOf } from "./canonical.js";
+import {
+  resolveMsgRef,
+  resolveEvidenceRef,
+  listValidMsgRefs,
+  listValidEvidenceRefs,
+} from "./refs.js";
 import type {
   AcceptMsg,
   CounterProposeMsg,
@@ -195,32 +201,116 @@ export async function* runNegotiation(
           continue;
         }
 
-        // Validate: evidence_refs must all exist in the pool
-        const missingEvidence = body.evidence_refs.filter((h) => !evidence.byHash.has(h));
-        if (missingEvidence.length > 0) {
+        // Normalize evidence_refs (accept eN / evidence_id / sha256 — resolve to canonical sha256).
+        const resolvedEv: string[] = [];
+        const badEv: string[] = [];
+        for (const r of body.evidence_refs) {
+          const resolved = resolveEvidenceRef(r, evidence.signed);
+          if (resolved) resolvedEv.push(resolved);
+          else badEv.push(r);
+        }
+        if (badEv.length > 0) {
+          const valid = listValidEvidenceRefs(evidence.signed);
           yield {
             kind: "message.rejected",
             round,
             role,
-            reason: reject(`evidence_refs not in pool: ${missingEvidence.join(", ")}`),
+            reason: reject(
+              `evidence_refs not in pool: ${badEv.join(", ")}. ` +
+                `Cite as 'eN', evidence_id, or full sha256:... hash. ` +
+                (valid.length > 0 ? `Valid: [${valid.join(" | ")}]` : `Pool is empty.`),
+            ),
             attempt,
           };
           continue;
         }
+        body.evidence_refs = resolvedEv;
 
-        // Validate: parent_refs must reference accepted prior messages
-        const missingParents = body.parent_refs.filter(
-          (h) => !history.some((m) => docHash(m) === h),
-        );
-        if (missingParents.length > 0) {
+        // Normalize parent_refs (accept mN / msg_id / sha256).
+        const resolvedParents: string[] = [];
+        const badParents: string[] = [];
+        for (const r of body.parent_refs) {
+          const resolved = resolveMsgRef(r, history);
+          if (resolved) resolvedParents.push(resolved);
+          else badParents.push(r);
+        }
+        if (badParents.length > 0) {
+          const valid = listValidMsgRefs(history);
           yield {
             kind: "message.rejected",
             round,
             role,
-            reason: reject(`parent_refs unknown: ${missingParents.join(", ")}`),
+            reason: reject(
+              `parent_refs unknown: ${badParents.join(", ")}. ` +
+                `Cite as 'mN', msg_id, or full sha256:... hash. ` +
+                (valid.length > 0 ? `Valid: [${valid.join(" | ")}]` : `History is empty.`),
+            ),
             attempt,
           };
           continue;
+        }
+        body.parent_refs = resolvedParents;
+
+        // Resolve target_msg_hash for Critique / Accept.
+        if (body.type === "Critique" || body.type === "Accept") {
+          const tRaw = (body.payload as { target_msg_hash?: string }).target_msg_hash;
+          if (typeof tRaw !== "string" || tRaw.length === 0) {
+            yield {
+              kind: "message.rejected",
+              round,
+              role,
+              reason: reject(
+                `${body.type} requires payload.target_msg_hash referencing a prior message.`,
+              ),
+              attempt,
+            };
+            continue;
+          }
+          const t = resolveMsgRef(tRaw, history);
+          if (!t) {
+            const valid = listValidMsgRefs(history);
+            yield {
+              kind: "message.rejected",
+              round,
+              role,
+              reason: reject(
+                `${body.type} target_msg_hash unknown: ${tRaw}. ` +
+                  (valid.length > 0 ? `Valid: [${valid.join(" | ")}]` : `History is empty.`),
+              ),
+              attempt,
+            };
+            continue;
+          }
+          (body.payload as { target_msg_hash: string }).target_msg_hash = t;
+        }
+
+        // parent_refs requirement: prevent placeholder-as-binding-move.
+        if (body.parent_refs.length === 0) {
+          if (body.type === "Critique" || body.type === "Accept" || body.type === "CounterPropose") {
+            yield {
+              kind: "message.rejected",
+              round,
+              role,
+              reason: reject(
+                `${body.type} requires non-empty parent_refs. ` +
+                  `Reference at least the message you are responding to.`,
+              ),
+              attempt,
+            };
+            continue;
+          }
+          if (body.type === "Propose" && round > 1) {
+            yield {
+              kind: "message.rejected",
+              round,
+              role,
+              reason: reject(
+                `Propose at round ${round} requires non-empty parent_refs (only the round-1 opening Propose may be empty).`,
+              ),
+              attempt,
+            };
+            continue;
+          }
         }
 
         // Compromise bound for Propose/CounterPropose

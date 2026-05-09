@@ -24,13 +24,14 @@ const COMMON_REFS = {
     type: "array",
     items: { type: "string" },
     description:
-      "List of sha256:... hashes of evidence items from the pool. Empty array if none.",
+      "List of evidence references from the pool. Each entry may be: 'eN' (e.g. 'e1', 'e2'), the evidence_id ('ev_...'), or a full 'sha256:...' hash. Empty array if none.",
   },
   parent_refs: {
     type: "array",
     items: { type: "string" },
     description:
-      "List of sha256:... hashes of prior messages in history this attaches to. Empty array if none.",
+      "List of references to prior messages in history this attaches to. Each entry may be: 'mN' (e.g. 'm1', 'm2'), the msg_id (32-hex), or a full 'sha256:...' hash. " +
+      "MUST be non-empty for Critique/CounterPropose/Accept. Propose may be empty only at round 1.",
   },
 } as const;
 
@@ -93,7 +94,8 @@ export const TOOLS = [
         ...COMMON_REFS,
         target_msg_hash: {
           type: "string",
-          description: "sha256:... hash of the prior message you are attacking.",
+          description:
+            "Reference to the prior message you are attacking — either 'mN' (e.g. 'm1'), the msg_id, or full 'sha256:...' hash.",
         },
         rationale: { type: "string" },
       },
@@ -103,12 +105,16 @@ export const TOOLS = [
   {
     name: "accept",
     description:
-      "Accept a prior Propose/CounterPropose. Target it by its exact sha256:... hash.",
+      "Accept a prior Propose/CounterPropose. Target it by 'mN', msg_id, or sha256:... hash.",
     input_schema: {
       type: "object",
       properties: {
         ...COMMON_REFS,
-        target_msg_hash: { type: "string" },
+        target_msg_hash: {
+          type: "string",
+          description:
+            "Reference to the Propose/CounterPropose you accept — 'mN', msg_id, or sha256:... hash.",
+        },
       },
       required: ["evidence_refs", "parent_refs", "target_msg_hash"],
     },

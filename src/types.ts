@@ -145,6 +145,12 @@ export type Bundle = {
     | { kind: "converged"; final_state: DealState; accepted_msg_hash: string }
     | { kind: "deadline" }
     | { kind: "ruling"; votes: SignedVote[]; ruling: SignedRuling };
-  root_hash: string; // sha256 over the canonical bundle (excluding root_hash itself)
+  root_hash: string; // sha256 over the canonical bundle (excluding root_hash + root_hash_jcs)
+  /** Canonical RFC 8785 JCS string of the bundle minus root_hash + root_hash_jcs.
+   *  Hashing this string is byte-deterministic — verifiers should use it
+   *  as the primary verification path when present (it survives any number of
+   *  JSON round-trips through transport / storage / serialization layers).
+   *  Optional for backward compatibility with bundles built by older versions. */
+  root_hash_jcs?: string;
   created_at: string;
 };

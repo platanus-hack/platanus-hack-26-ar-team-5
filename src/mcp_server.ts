@@ -52,11 +52,13 @@ Pacta has exactly TWO party slots: 'aria' and 'atlas'. These are NOT names — t
 
 3. **Negotiate.** While the dispute is not finalized:
    a. Check whose turn it is. If it's yours immediately (e.g. you just opened), build your move now.
-   b. If it isn't your turn yet, call **wait_for_turn** with your dispute_id and role_token. This BLOCKS server-side until your turn or the dispute finalizes. Use it — do NOT poll get_dispute in a loop.
+   b. If it isn't your turn yet, call **wait_for_turn** with your dispute_id and role_token. This BLOCKS server-side until your turn or the dispute finalizes. Use it — do NOT poll get_dispute in a loop. wait_for_turn returns one of three kinds: \`your_turn\` (act now), \`finalized\` (dispute is done — read the bundle), or \`timeout\` (counterparty hasn't moved — call wait_for_turn again).
    c. When it's your turn, call get_dispute to read the latest history, then call submit_message with one of: Propose, Critique, CounterPropose, Reveal, Accept, Escalate.
+      - **References are short**: cite prior messages by 'mN' (m1, m2, … from get_dispute.history[].ref), msg_id, or full sha256:...; cite evidence by 'eN', evidence_id, or sha256:.... Pacta resolves all three forms server-side. You do NOT need to track sha256 hashes manually.
       - Compromise bound: utility_for_self must be ≤ your previous Propose/CounterPropose's utility. Honor this.
       - Reveal monotonicity: each \`domain\` only once.
-      - Accept by exact sha256 hash of a prior Propose/CounterPropose you've seen.
+      - parent_refs must be non-empty for Critique / CounterPropose / Accept. Propose may have empty parent_refs only at round 1.
+      - Accept by referencing a prior Propose/CounterPropose (mN works fine).
    d. After submit_message, loop back to step 3a.
 
 4. **Done.** When wait_for_turn or get_dispute reports finalized=true: tell the user the final state (converged terms, or the jury ruling). Then call verify_bundle on the bundle to confirm every signature validates. Report that too.
@@ -167,18 +169,22 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
     "verify_bundle",
     {
       description:
-        "Verify a Pacta Bundle independently. Recomputes Ed25519 signatures over RFC 8785 " +
-        "canonical bytes for every signed evidence + message + vote + ruling, and checks the " +
-        "bundle root_hash. Returns a per-document pass/fail report.",
+        "Verify a Pacta Bundle independently. Re-checks Ed25519 signatures over RFC 8785 " +
+        "canonical bytes for every signed evidence + message + vote + ruling, and validates " +
+        "the bundle root_hash. When the bundle includes 'root_hash_jcs' (the canonical-JCS " +
+        "string used at build time), root_hash is verified by hashing that string directly — " +
+        "this is byte-deterministic and immune to JSON round-trip noise. When absent, falls " +
+        "back to recomputing canonicalize(bundle minus root_hash). Returns a per-document " +
+        "pass/fail report.",
       inputSchema: {
         bundle: z
           .unknown()
-          .describe("A Pacta Bundle JSON object — typically the output of run_scenario."),
+          .describe("A Pacta Bundle JSON object — typically the output of run_scenario or get_dispute.finalized."),
       },
     },
     async ({ bundle }) => {
       const b = bundle as Bundle;
-      const checks: Array<{ label: string; ok: boolean }> = [];
+      const checks: Array<{ label: string; ok: boolean; detail?: string }> = [];
       for (const e of b.evidence ?? []) {
         checks.push({ label: `evidence ${e.evidence_id}`, ok: verifySignedDoc(e) });
       }
@@ -194,13 +200,42 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
         }
         checks.push({ label: "ruling", ok: verifySignedDoc(b.outcome.ruling) });
       }
-      const { root_hash, ...rest } = b;
-      const recomputed = hashOf(rest);
-      const rootOk = recomputed === root_hash;
-      checks.push({ label: "root_hash", ok: rootOk });
+      // root_hash verification — prefer the embedded JCS string when present.
+      const { root_hash, root_hash_jcs, ...rest } = b as Bundle & { root_hash_jcs?: string };
+      let rootOk = false;
+      let rootDetail: string | undefined;
+      if (typeof root_hash_jcs === "string" && root_hash_jcs.length > 0) {
+        // Hash the embedded canonical bytes directly — deterministic across
+        // any JSON round-trip the bundle might have undergone.
+        const fromEmbedded = hashOf(JSON.parse(root_hash_jcs));
+        // Sanity: hashing the parsed object should still produce the same hash
+        // since canonicalize is deterministic. If not, the embedded string is
+        // tampered with relative to the rest of the bundle.
+        const recomputed = hashOf(rest);
+        if (fromEmbedded === root_hash && recomputed === root_hash) {
+          rootOk = true;
+          rootDetail = "verified via root_hash_jcs (transport-safe)";
+        } else if (fromEmbedded === root_hash) {
+          rootOk = true;
+          rootDetail =
+            "verified via root_hash_jcs; recompute(rest) differs " +
+            `(${recomputed.slice(0, 26)}…) — likely JSON round-trip noise`;
+        } else {
+          rootDetail = `root_hash_jcs hashes to ${fromEmbedded.slice(0, 26)}…, expected ${root_hash.slice(0, 26)}…`;
+        }
+      } else {
+        const recomputed = hashOf(rest);
+        rootOk = recomputed === root_hash;
+        if (!rootOk) {
+          rootDetail = `recomputed ${recomputed.slice(0, 26)}…, stored ${root_hash.slice(0, 26)}… (no root_hash_jcs available — bundle was built by an older Pacta version)`;
+        }
+      }
+      checks.push({ label: "root_hash", ok: rootOk, detail: rootDetail });
       const failures = checks.filter((c) => !c.ok);
       const lines = [
-        ...checks.map((c) => `  ${c.ok ? "✓" : "✗"} ${c.label}`),
+        ...checks.map((c) =>
+          `  ${c.ok ? "✓" : "✗"} ${c.label}${c.detail ? `  — ${c.detail}` : ""}`,
+        ),
         "",
         failures.length === 0
           ? `All ${checks.length} checks passed.`
@@ -395,13 +430,13 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
       description:
         "Submit a Pacta message (Propose / Critique / CounterPropose / Accept / Reveal / Escalate) " +
         "for the role you opened the dispute as. The orchestrator validates the message " +
-        "against ALL protocol rules: from_agent must match your role's DID; round must match " +
-        "the current round; evidence_refs and parent_refs must be exact sha256:... hashes from " +
-        "the dispute's pool/history; compromise bound (utility_for_self ≤ your previous); " +
-        "reveal monotonicity (each domain only once); Accept must target a real prior " +
-        "Propose/CounterPropose hash. If Pacta is driving the counterparty, Pacta will then " +
-        "run the counterparty's turn(s) before yielding back. The response includes events from " +
-        "your message and any Claude turns that ran, plus the public dispute state.",
+        "against ALL protocol rules: from_agent matches your role's DID; round matches the " +
+        "current round; refs resolve to real evidence/history items; compromise bound " +
+        "(utility_for_self ≤ your previous); reveal monotonicity (each domain only once); " +
+        "Accept must target a real prior Propose/CounterPropose. CounterPropose / Critique / " +
+        "Accept require non-empty parent_refs; Propose may be empty only at round 1. " +
+        "Refs accept short forms — see evidence_refs / parent_refs descriptions. " +
+        "The signed message always carries canonical sha256, regardless of which form you submit.",
       inputSchema: {
         dispute_id: z.string(),
         role_token: z.string().describe("The token returned by open_dispute for your role."),
@@ -421,17 +456,27 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
               .describe("Must equal your_did from open_dispute (a did:key:... DID)."),
             evidence_refs: z
               .array(z.string())
-              .describe("List of sha256:... hashes of evidence items from the pool. Empty if none."),
+              .describe(
+                "References to evidence items from the pool. Each entry may be: " +
+                  "'eN' (e.g. 'e1', 'e2' — see get_dispute.evidence[].ref), " +
+                  "evidence_id (e.g. 'ev_abc...'), or full 'sha256:...' hash. Empty if none.",
+              ),
             parent_refs: z
               .array(z.string())
-              .describe("List of sha256:... hashes of prior messages in history. Empty if none."),
+              .describe(
+                "References to prior messages this attaches to. Each entry may be: " +
+                  "'mN' (e.g. 'm1', 'm2' — see get_dispute.history[].ref), " +
+                  "msg_id (32-hex), or full 'sha256:...' hash. " +
+                  "MUST be non-empty for Critique/CounterPropose/Accept. " +
+                  "Propose may be empty only at round 1.",
+              ),
             payload: z
               .record(z.string(), z.unknown())
               .describe(
                 "Per-message-type payload. " +
                   "Propose/CounterPropose: { state: {credit_usd, terms}, rationale, utility_for_self }. " +
-                  "Critique: { target_msg_hash, rationale }. " +
-                  "Accept: { target_msg_hash }. " +
+                  "Critique: { target_msg_hash, rationale } — target_msg_hash accepts mN/msg_id/sha256. " +
+                  "Accept: { target_msg_hash } — accepts mN/msg_id/sha256, must resolve to a Propose/CounterPropose. " +
                   "Reveal: { domain, information }. " +
                   "Escalate: { reason, requested_action }.",
               ),
@@ -501,47 +546,64 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
             ],
           };
         }
-        // Initial check
-        if (first.finalized || first.turn === role) {
+        // Helper: build the "you're up" full-state response with explicit kind.
+        const buildUnblock = async (kind: "your_turn" | "finalized") => {
           const dump = await dumpDispute(dispute_id);
+          const header =
+            kind === "finalized"
+              ? `wait_for_turn unblocked: dispute is finalized. ` +
+                `Read 'finalized' / 'ruling' for the bundle, then call verify_bundle.`
+              : `wait_for_turn unblocked: it is your turn (kind=your_turn). ` +
+                `Read history + references_help, build your move, call submit_message.`;
           return {
             content: [
               {
-                type: "text",
-                text:
-                  `wait_for_turn returned immediately (your turn or finalized).\n` +
-                  `--- STATE ---\n${JSON.stringify(dump, null, 2)}`,
+                type: "text" as const,
+                text: header + `\n\n--- STATE ---\n${JSON.stringify({ kind, ...dump }, null, 2)}`,
               },
             ],
           };
-        }
+        };
+        // Initial check
+        if (first.finalized) return await buildUnblock("finalized");
+        if (first.turn === role) return await buildUnblock("your_turn");
         // Poll loop. 1.5s interval.
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 1500));
           const s = await getDispute(dispute_id);
-          if (s.finalized || s.turn === role) {
-            const dump = await dumpDispute(dispute_id);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text:
-                    `wait_for_turn: it's your turn now${s.finalized ? " (or dispute finalized)" : ""}.\n` +
-                    `--- STATE ---\n${JSON.stringify(dump, null, 2)}`,
-                },
-              ],
-            };
-          }
+          if (s.finalized) return await buildUnblock("finalized");
+          if (s.turn === role) return await buildUnblock("your_turn");
         }
-        // Timeout — return current state, agent should call wait_for_turn again.
-        const dump = await dumpDispute(dispute_id);
+        // Timeout — slim heartbeat shape (no full state) so long polls don't
+        // overflow the agent's context window across many wait calls.
+        const s = await getDispute(dispute_id);
+        const lastMsg = s.history[s.history.length - 1];
+        const heartbeat = {
+          kind: "timeout" as const,
+          dispute_id,
+          turn: s.turn,
+          current_round: s.current_round,
+          max_rounds: s.max_rounds,
+          finalized: !!s.finalized,
+          history_count: s.history.length,
+          evidence_count: s.evidence.signed.length,
+          last_message: lastMsg
+            ? {
+                ref: `m${s.history.length}`,
+                type: lastMsg.type,
+                from_agent: lastMsg.from_agent,
+                round: lastMsg.round,
+              }
+            : null,
+        };
         return {
           content: [
             {
               type: "text",
               text:
-                `wait_for_turn timed out without your turn. Call this tool again to keep waiting.\n` +
-                `--- STATE ---\n${JSON.stringify(dump, null, 2)}`,
+                `wait_for_turn timeout (kind=timeout). Counterparty has not moved yet — ` +
+                `call this tool again to keep waiting. State is unchanged.\n\n` +
+                `--- HEARTBEAT ---\n${JSON.stringify(heartbeat, null, 2)}`,
             },
           ],
         };

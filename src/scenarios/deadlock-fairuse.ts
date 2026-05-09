@@ -148,72 +148,72 @@ const mockScript: ScenarioMockStep[] = [
       information: "Retraining the affected model is estimated at USD 18M and 9 weeks. We cannot accept any term that requires retraining absent a binding court order.",
     },
   }),
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 5000000, terms: "USD 5M settlement + binding opt-out registry for future training + retroactive attribution credits + dropping retraining demand." },
       rationale: "Concedes retraining (acknowledging cost). Holds firm on opt-out — that's the structural ask. USD 5M reflects the realistic class-action recovery range over a 3-year horizon, accelerated.",
       utility_for_self: 0.7,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 3,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 1500000, terms: "USD 1.5M goodwill licensing fund (NOT settlement) + voluntary opt-out registry for future training only + reaffirmation that fair-use position is preserved." },
       rationale: "Within authorized envelope. Goodwill framing protects the legal precedent. Future-only opt-out is what we would have offered absent any dispute.",
       utility_for_self: 0.78,
     },
   }),
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 4,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 3000000, terms: "USD 3M (settlement, not goodwill) + binding opt-out for future training + class-release covering signed members only + retroactive attribution credits in product." },
       rationale: "Reservation territory. The 'settlement vs goodwill' framing matters to half our members; future-only opt-out is unacceptable to the other half.",
       utility_for_self: 0.55,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 4,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 2000000, terms: "USD 2M licensing payment, fair-use preserved by stipulation, opt-out registry for future, no retroactive class release beyond the named plaintiffs." },
       rationale: "We are at our reservation. Below this triggers retraining demands we cannot accept, and any 'settlement' framing reopens precedent.",
       utility_for_self: 0.55,
     },
   }),
-  ({ ariaDid, ariaEvidenceHashes }) => ({
+  ({ history, ariaDid, ariaEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 5,
     from_agent: ariaDid,
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 3000000, terms: "Same as our R4." },
       rationale: "Holding the line. We would rather take the 3-year class-action route than accept goodwill framing on what we view as actionable harm.",
       utility_for_self: 0.5,
     },
   }),
-  ({ atlasDid, atlasEvidenceHashes }) => ({
+  ({ history, atlasDid, atlasEvidenceHashes }) => ({
     type: "CounterPropose",
     round: 5,
     from_agent: atlasDid,
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
-    parent_refs: [],
+    parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: { credit_usd: 2000000, terms: "Same as our R4." },
       rationale: "We are at our reservation. Below this is litigation territory.",

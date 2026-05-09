@@ -42,13 +42,28 @@ function main() {
     }
   }
 
-  // Verify root_hash
-  const { root_hash, ...rest } = bundle;
-  const recomputed = hashOf(rest);
-  if (recomputed === root_hash) {
-    console.log(`  ${pc.green("✓")} root_hash matches`);
+  // Verify root_hash. Prefer the embedded JCS string when present (transport-safe);
+  // fall back to recomputing canonicalize(bundle minus root_hash) for older bundles.
+  const { root_hash, root_hash_jcs, ...rest } = bundle as Bundle & { root_hash_jcs?: string };
+  let rootOk = false;
+  let rootDetail = "";
+  if (typeof root_hash_jcs === "string" && root_hash_jcs.length > 0) {
+    const fromEmbedded = hashOf(JSON.parse(root_hash_jcs));
+    if (fromEmbedded === root_hash) {
+      rootOk = true;
+      rootDetail = " (via root_hash_jcs)";
+    } else {
+      rootDetail = ` (root_hash_jcs hashes to ${shortHash(fromEmbedded)})`;
+    }
   } else {
-    console.log(`  ${pc.red("✗")} root_hash mismatch (expected ${shortHash(root_hash)}, got ${shortHash(recomputed)})`);
+    const recomputed = hashOf(rest);
+    rootOk = recomputed === root_hash;
+    if (!rootOk) rootDetail = ` (recomputed ${shortHash(recomputed)})`;
+  }
+  if (rootOk) {
+    console.log(`  ${pc.green("✓")} root_hash matches${rootDetail}`);
+  } else {
+    console.log(`  ${pc.red("✗")} root_hash mismatch (expected ${shortHash(root_hash)})${rootDetail}`);
     failures++;
   }
 

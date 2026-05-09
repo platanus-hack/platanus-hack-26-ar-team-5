@@ -4,7 +4,7 @@
  * Vercel cold-start instances actually work.
  */
 import { signDoc, docHash, verifySignedDoc } from "./sign.js";
-import { hash as hashOf } from "./canonical.js";
+import { hash as hashOf, canonicalize } from "./canonical.js";
 import { makeClaudeDriver } from "./claude_driver.js";
 import { deliberate } from "./jury.js";
 import {
@@ -14,6 +14,12 @@ import {
   saveDispute,
 } from "./dispute_store.js";
 import type { MessageBody } from "./orchestrator.js";
+import {
+  resolveMsgRef,
+  resolveEvidenceRef,
+  listValidMsgRefs,
+  listValidEvidenceRefs,
+} from "./refs.js";
 import type {
   AcceptMsg,
   Bundle,
@@ -78,19 +84,116 @@ function isConverged(history: SignedMessage[]): { hash: string; state: DealState
   return null;
 }
 
+/**
+ * Normalize a message body's references in place.
+ *
+ * Pacta accepts three reference forms (sha256:..., m1/e1/..., msg_id/evidence_id)
+ * but the SIGNED message always carries the canonical sha256 form so the audit
+ * trail is content-addressed end-to-end.
+ *
+ * Returns null on success (body has been mutated in-place with canonical refs),
+ * or a human-readable error string explaining which ref was unresolvable + the
+ * full list of valid refs the agent can pick from.
+ */
+function normalizeRefs(state: DisputeState, body: MessageBody): string | null {
+  const ev = state.evidence.signed;
+  const hist = state.history;
+
+  // evidence_refs
+  const resolvedEv: string[] = [];
+  const badEv: string[] = [];
+  for (const ref of body.evidence_refs ?? []) {
+    const r = resolveEvidenceRef(ref, ev);
+    if (r) resolvedEv.push(r);
+    else badEv.push(ref);
+  }
+  if (badEv.length > 0) {
+    const valid = listValidEvidenceRefs(ev);
+    return (
+      `evidence_refs not in pool: ${badEv.join(", ")}. ` +
+      `Cite evidence as 'eN' (e.g. e1, e2), evidence_id (ev_...), ` +
+      `or full sha256:... hash. ` +
+      (valid.length > 0
+        ? `Valid evidence: [${valid.join(" | ")}]`
+        : `Pool is empty — submit_evidence first.`)
+    );
+  }
+  body.evidence_refs = resolvedEv;
+
+  // parent_refs
+  const resolvedParents: string[] = [];
+  const badParents: string[] = [];
+  for (const ref of body.parent_refs ?? []) {
+    const r = resolveMsgRef(ref, hist);
+    if (r) resolvedParents.push(r);
+    else badParents.push(ref);
+  }
+  if (badParents.length > 0) {
+    const valid = listValidMsgRefs(hist);
+    return (
+      `parent_refs unknown: ${badParents.join(", ")}. ` +
+      `Cite prior messages as 'mN' (e.g. m1, m2), msg_id, ` +
+      `or full sha256:... hash. ` +
+      (valid.length > 0
+        ? `Valid messages: [${valid.join(" | ")}]`
+        : `History is empty.`)
+    );
+  }
+  body.parent_refs = resolvedParents;
+
+  // target_msg_hash for Critique / Accept (in payload)
+  if (body.type === "Critique" || body.type === "Accept") {
+    const tRaw = (body.payload as { target_msg_hash?: string }).target_msg_hash;
+    if (typeof tRaw !== "string" || tRaw.length === 0) {
+      return `${body.type} requires payload.target_msg_hash referencing a prior message.`;
+    }
+    const t = resolveMsgRef(tRaw, hist);
+    if (!t) {
+      const valid = listValidMsgRefs(hist);
+      return (
+        `${body.type} target_msg_hash unknown: ${tRaw}. ` +
+        `Cite as 'mN' (e.g. m1), msg_id, or full sha256:... hash. ` +
+        (valid.length > 0
+          ? `Valid messages: [${valid.join(" | ")}]`
+          : `History is empty.`)
+      );
+    }
+    (body.payload as { target_msg_hash: string }).target_msg_hash = t;
+  }
+
+  return null;
+}
+
 function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): string | null {
   const agent = state.agents[role];
   if (body.from_agent !== agent.did)
     return `from_agent mismatch (got ${body.from_agent}, expected ${agent.did})`;
   if (body.round !== state.current_round)
     return `round mismatch (got ${body.round}, expected ${state.current_round})`;
-  const missingEvidence = body.evidence_refs.filter((h) => !state.evidence.byHash.has(h));
-  if (missingEvidence.length > 0)
-    return `evidence_refs not in pool: ${missingEvidence.join(", ")}`;
-  const missingParents = body.parent_refs.filter(
-    (h) => !state.history.some((m) => docHash(m) === h),
-  );
-  if (missingParents.length > 0) return `parent_refs unknown: ${missingParents.join(", ")}`;
+
+  // Normalize references first (mutates body to canonical sha256 form).
+  const normErr = normalizeRefs(state, body);
+  if (normErr) return normErr;
+
+  // parent_refs requirement: prevent the "probe" footgun. CounterPropose,
+  // Critique, and Accept must anchor to a prior message — otherwise an agent
+  // can submit a placeholder that gets accepted as a real binding move.
+  // Propose may have empty parent_refs only at round 1 (the opening move).
+  if (body.parent_refs.length === 0) {
+    if (body.type === "Critique" || body.type === "Accept" || body.type === "CounterPropose") {
+      return (
+        `${body.type} requires non-empty parent_refs. ` +
+        `Reference at least the message you are responding to (use 'mN', msg_id, or sha256:...).`
+      );
+    }
+    if (body.type === "Propose" && state.current_round > 1) {
+      return (
+        `Propose at round ${state.current_round} requires non-empty parent_refs. ` +
+        `Empty parent_refs is only permitted on the round-1 opening Propose.`
+      );
+    }
+  }
+
   if (body.type === "Propose" || body.type === "CounterPropose") {
     const last = lastProposalUtility(state.history, agent.did);
     if (last !== undefined && body.payload.utility_for_self - last > 1e-9)
@@ -106,7 +209,7 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
       (m) => (m.type === "Propose" || m.type === "CounterPropose") && docHash(m) === target,
     );
     if (!found)
-      return `Accept must target the sha256 hash of a prior Propose or CounterPropose message; '${target}' is not one.`;
+      return `Accept must target a prior Propose or CounterPropose; '${target}' resolves to a non-proposal message.`;
   }
   return null;
 }
@@ -146,7 +249,7 @@ function advanceTurn(state: DisputeState): { advanced_round: boolean } {
 }
 
 function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
-  const bundleNoHash: Omit<Bundle, "root_hash"> = {
+  const bundleNoHash: Omit<Bundle, "root_hash" | "root_hash_jcs"> = {
     type: "Bundle",
     scenario: state.scenario_id ?? "freeform",
     agents: {
@@ -159,7 +262,14 @@ function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
     outcome,
     created_at: new Date().toISOString(),
   };
-  const bundle: Bundle = { ...bundleNoHash, root_hash: hashOf(bundleNoHash) };
+  // Capture both the canonical JCS string AND the sha256 over those exact bytes.
+  // The JCS string is included in the bundle as a transport-safe verification
+  // path: when the bundle round-trips through JSON-RPC / Redis / file I/O, key
+  // ordering or whitespace can shift in ways that make naive recomputation
+  // fragile. Hashing the embedded JCS string is byte-deterministic.
+  const jcs = canonicalize(bundleNoHash);
+  const root_hash = hashOf(bundleNoHash);
+  const bundle: Bundle = { ...bundleNoHash, root_hash, root_hash_jcs: jcs };
   state.finalized = { bundle };
   return bundle;
 }

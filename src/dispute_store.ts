@@ -241,9 +241,22 @@ export async function getDispute(dispute_id: string): Promise<LiveDispute> {
   return s;
 }
 
-/** Public, redacted view (no keypairs / no agent_keys) for clients. */
+/** Public, redacted view (no keypairs / no agent_keys) for clients.
+ *  Each history entry is augmented with `hash` (canonical sha256 used for
+ *  parent_refs / target_msg_hash) and `ref` (short 'mN' reference). Each
+ *  evidence entry gets the same treatment with 'eN'. */
 export async function dumpDispute(dispute_id: string) {
   const s = await getDispute(dispute_id);
+  const history = s.history.map((m, i) => ({
+    ...m,
+    hash: docHash(m),
+    ref: `m${i + 1}`,
+  }));
+  const evidence = s.evidence.signed.map((e, i) => ({
+    ...e,
+    hash: docHash(e),
+    ref: `e${i + 1}`,
+  }));
   return {
     dispute_id: s.dispute_id,
     claim: s.claim,
@@ -257,11 +270,22 @@ export async function dumpDispute(dispute_id: string) {
     turn: s.turn,
     current_round: s.current_round,
     max_rounds: s.max_rounds,
-    history: s.history,
+    history,
     pending_feedback: s.pending_feedback,
-    evidence: s.evidence.signed,
+    evidence,
     finalized: s.finalized?.bundle ?? null,
     ruling: s.ruling ?? null,
+    /** How to cite history / evidence in submit_message. Refs are resolved
+     *  server-side to canonical sha256 before the message is signed. */
+    references_help: {
+      messages:
+        "Cite a prior message in parent_refs / target_msg_hash via: " +
+        "'mN' (e.g. m1, m2 — chronological index, 1-based), " +
+        "msg_id (32-hex), or full sha256:... hash.",
+      evidence:
+        "Cite an evidence item in evidence_refs via: " +
+        "'eN' (e.g. e1, e2), evidence_id (ev_...), or full sha256:... hash.",
+    },
   };
 }
 

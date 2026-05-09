@@ -395,3 +395,272 @@ describe("orchestrator (mocked) — validation rejections", () => {
     expect(events.some((e) => e.kind === "deadline" || e.kind === "escalation")).toBe(true);
   });
 });
+
+describe("orchestrator (mocked) — sequential-Accept rule", () => {
+  it("rejects cross-accept (different targets) so the audit graph stays linear", async () => {
+    const agents = bootAgents();
+    const pool = buildEvidencePool(agents, aiOverrun);
+    const ariaEvidence = pool.signed
+      .filter((e) => e.submitter === agents.aria.did)
+      .map(docHash);
+    const atlasEvidence = pool.signed
+      .filter((e) => e.submitter === agents.atlas.did)
+      .map(docHash);
+
+    let ariaPropR1Hash = "";
+    let atlasCpR1Hash = "";
+    let ariaCpR2Hash = "";
+
+    const script: Array<(h: SignedMessage[]) => MessageBody> = [
+      // R1 aria Propose
+      () =>
+        ariaProposeBody({
+          ariaDid: agents.aria.did,
+          round: 1,
+          utility: 0.95,
+          state: { credit_usd: 100, terms: "aria-r1" },
+          evidenceHashes: ariaEvidence,
+        }),
+      // R1 atlas CounterPropose
+      (h) => {
+        ariaPropR1Hash = docHash(h[h.length - 1]!);
+        return atlasCounterBody({
+          atlasDid: agents.atlas.did,
+          round: 1,
+          utility: 0.92,
+          state: { credit_usd: 0, terms: "atlas-r1" },
+          evidenceHashes: atlasEvidence,
+          parents: [ariaPropR1Hash],
+        });
+      },
+      // R2 aria CounterPropose
+      (h) => {
+        atlasCpR1Hash = docHash(h[h.length - 1]!);
+        return ariaCounterBody({
+          ariaDid: agents.aria.did,
+          round: 2,
+          utility: 0.85,
+          state: { credit_usd: 50, terms: "aria-r2" },
+          evidenceHashes: ariaEvidence,
+          parents: [atlasCpR1Hash],
+        });
+      },
+      // R2 atlas Accept aria's R2 CP (atlas commits to ariaCpR2Hash)
+      (h) => {
+        ariaCpR2Hash = docHash(h[h.length - 1]!);
+        return acceptBody({
+          fromDid: agents.atlas.did,
+          round: 2,
+          targetHash: ariaCpR2Hash,
+        });
+      },
+      // R3 aria tries CROSS-ACCEPT: targets atlas's r1 CP instead of matching atlas's Accept.
+      // Orchestrator MUST reject this with the cross-accept message.
+      // First attempt: cross-accept (rejected).
+      () =>
+        acceptBody({
+          fromDid: agents.aria.did,
+          round: 3,
+          targetHash: atlasCpR1Hash,
+        }),
+      // Second attempt (retry after rejection): the correct matching Accept.
+      // This converges.
+      () =>
+        acceptBody({
+          fromDid: agents.aria.did,
+          round: 3,
+          targetHash: ariaCpR2Hash,
+        }),
+    ];
+
+    const { events, result } = await drainNegotiation(
+      agents,
+      pool,
+      new ScriptedDriver(script),
+    );
+
+    // Exactly one rejection: aria's cross-accept attempt.
+    const rejected = events.filter(
+      (e) =>
+        e.kind === "message.rejected" &&
+        typeof (e as { reason: string }).reason === "string" &&
+        (e as { reason: string }).reason.toLowerCase().includes("cross-accept"),
+    );
+    expect(rejected.length).toBe(1);
+
+    // After the retry, dispute converges on aria's r2 CP.
+    expect(result.outcome.kind).toBe("converged");
+    if (result.outcome.kind === "converged") {
+      expect(result.outcome.accepted_msg_hash).toBe(ariaCpR2Hash);
+    }
+  });
+
+  it("matching Accept (same target as counterparty) is allowed and converges", async () => {
+    const agents = bootAgents();
+    const pool = buildEvidencePool(agents, aiOverrun);
+    const ariaEvidence = pool.signed
+      .filter((e) => e.submitter === agents.aria.did)
+      .map(docHash);
+    const atlasEvidence = pool.signed
+      .filter((e) => e.submitter === agents.atlas.did)
+      .map(docHash);
+
+    let ariaPropR1Hash = "";
+    let ariaCpR2Hash = "";
+
+    const script: Array<(h: SignedMessage[]) => MessageBody> = [
+      () =>
+        ariaProposeBody({
+          ariaDid: agents.aria.did,
+          round: 1,
+          utility: 0.95,
+          state: { credit_usd: 100, terms: "x" },
+          evidenceHashes: ariaEvidence,
+        }),
+      (h) => {
+        ariaPropR1Hash = docHash(h[h.length - 1]!);
+        return atlasCounterBody({
+          atlasDid: agents.atlas.did,
+          round: 1,
+          utility: 0.92,
+          state: { credit_usd: 0, terms: "y" },
+          evidenceHashes: atlasEvidence,
+          parents: [ariaPropR1Hash],
+        });
+      },
+      (h) =>
+        ariaCounterBody({
+          ariaDid: agents.aria.did,
+          round: 2,
+          utility: 0.85,
+          state: { credit_usd: 50, terms: "z" },
+          evidenceHashes: ariaEvidence,
+          parents: [docHash(h[h.length - 1]!)],
+        }),
+      (h) => {
+        ariaCpR2Hash = docHash(h[h.length - 1]!);
+        return acceptBody({
+          fromDid: agents.atlas.did,
+          round: 2,
+          targetHash: ariaCpR2Hash,
+        });
+      },
+      () =>
+        acceptBody({
+          fromDid: agents.aria.did,
+          round: 3,
+          targetHash: ariaCpR2Hash,
+        }),
+    ];
+
+    const { events, result } = await drainNegotiation(
+      agents,
+      pool,
+      new ScriptedDriver(script),
+    );
+    const rejections = events.filter((e) => e.kind === "message.rejected");
+    expect(rejections).toEqual([]);
+    expect(result.outcome.kind).toBe("converged");
+  });
+
+  it("CounterPropose after counterparty Accept is allowed (re-opens negotiation)", async () => {
+    const agents = bootAgents();
+    const pool = buildEvidencePool(agents, aiOverrun);
+    const ariaEvidence = pool.signed
+      .filter((e) => e.submitter === agents.aria.did)
+      .map(docHash);
+    const atlasEvidence = pool.signed
+      .filter((e) => e.submitter === agents.atlas.did)
+      .map(docHash);
+
+    let ariaPropR1Hash = "";
+    let ariaCpR2Hash = "";
+
+    const script: Array<(h: SignedMessage[]) => MessageBody> = [
+      () =>
+        ariaProposeBody({
+          ariaDid: agents.aria.did,
+          round: 1,
+          utility: 0.95,
+          state: { credit_usd: 100, terms: "x" },
+          evidenceHashes: ariaEvidence,
+        }),
+      (h) => {
+        ariaPropR1Hash = docHash(h[h.length - 1]!);
+        return atlasCounterBody({
+          atlasDid: agents.atlas.did,
+          round: 1,
+          utility: 0.92,
+          state: { credit_usd: 0, terms: "y" },
+          evidenceHashes: atlasEvidence,
+          parents: [ariaPropR1Hash],
+        });
+      },
+      (h) =>
+        ariaCounterBody({
+          ariaDid: agents.aria.did,
+          round: 2,
+          utility: 0.85,
+          state: { credit_usd: 50, terms: "z" },
+          evidenceHashes: ariaEvidence,
+          parents: [docHash(h[h.length - 1]!)],
+        }),
+      (h) => {
+        ariaCpR2Hash = docHash(h[h.length - 1]!);
+        return acceptBody({
+          fromDid: agents.atlas.did,
+          round: 2,
+          targetHash: ariaCpR2Hash,
+        });
+      },
+      // R3: aria DOES NOT want to converge; CounterPropose instead.
+      // This must be allowed — the cross-accept rule only constrains Accepts.
+      (h) =>
+        ariaCounterBody({
+          ariaDid: agents.aria.did,
+          round: 3,
+          utility: 0.78,
+          state: { credit_usd: 60, terms: "z2" },
+          evidenceHashes: ariaEvidence,
+          parents: [docHash(h[h.length - 1]!)],
+        }),
+      // R3 atlas CounterPropose to keep things going
+      (h) =>
+        atlasCounterBody({
+          atlasDid: agents.atlas.did,
+          round: 3,
+          utility: 0.86,
+          state: { credit_usd: 55, terms: "y2" },
+          evidenceHashes: atlasEvidence,
+          parents: [docHash(h[h.length - 1]!)],
+        }),
+      // R4 aria Accept atlas's most recent CP. Counterparty's last move is a
+      // CP (not an Accept), so no cross-accept constraint applies.
+      (h) =>
+        acceptBody({
+          fromDid: agents.aria.did,
+          round: 4,
+          targetHash: docHash(h[h.length - 1]!),
+        }),
+      // R4 atlas matching Accept on the same target
+      (h) => {
+        // Atlas's own r3 CP is at history[-2] now (history[-1] is aria's Accept).
+        const atlasCpR3 = h[h.length - 2]!;
+        return acceptBody({
+          fromDid: agents.atlas.did,
+          round: 4,
+          targetHash: docHash(atlasCpR3),
+        });
+      },
+    ];
+
+    const { events, result } = await drainNegotiation(
+      agents,
+      pool,
+      new ScriptedDriver(script),
+    );
+    const rejections = events.filter((e) => e.kind === "message.rejected");
+    expect(rejections, JSON.stringify(rejections)).toEqual([]);
+    expect(result.outcome.kind).toBe("converged");
+  });
+});

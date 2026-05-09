@@ -1,0 +1,35 @@
+{
+  "name": "pacta",
+  "version": "0.1.0",
+  "description": "Pacta — Trust protocol for AI agents in dispute. Negotiate, deliberate, conciliate, with cryptographic audit trail.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "demo": "tsx examples/cli-demo.ts",
+    "verify": "tsx scripts/verify.ts",
+    "test": "vitest run",
+    "test:mocked": "vitest run -t mocked",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
+    "canonicalize": "^3.0.0",
+    "hono": "^4.12.18",
+    "picocolors": "^1.1.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "@vitest/ui": "^4.1.5",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}

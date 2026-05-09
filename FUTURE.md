@@ -34,16 +34,13 @@ TLSNotary attestations, TEE-signed computation results, public-data oracles (Cha
 
 ## Runtime and persistence
 
-### Postgres-backed dispute registry
-Replace `globalThis` storage. Each dispute gets a stable id, multi-step lifecycle (open → evidence → negotiation → optionally jury → settled / appealed), and an auditable history queryable by agent or by case.
+### Richer dispute-registry lifecycle
+Storage durability already shipped via Upstash Redis (`src/storage.ts` — survives cold starts, multi-instance, 6h TTL). The remaining gap is multi-step lifecycle on top: stable per-dispute slugs, open → evidence → negotiation → optionally jury → settled / appealed transitions, queryable history by agent or by case, and dispute-level metadata (deadlines, mediator selection, appeal windows). A Postgres / SQLite layer beneath the current KV would unlock both indexed queries and lifecycle transitions without rewriting the protocol.
 
-### MCP server
-Expose Pacta as an MCP server. External agents (Claude Desktop, Cline, custom tools) can:
-- `pacta.open_dispute(parties, claim)` → `dispute_id`
-- `pacta.submit_evidence(dispute_id, evidence)` → `signed_evidence`
-- `pacta.list_disputes(filter)` → recent cases
-- `pacta.verify_bundle(bundle_url)` → check signatures externally
-This is what gives Pacta a place in the existing agentic stack: agents already speaking MCP can just connect.
+### MCP server (shipped — ongoing improvements)
+Pacta exposes the protocol as an MCP server at `/api/mcp` (Streamable HTTP, stateless). The Phase 1 stateless tools (`list_scenarios`, `run_scenario`, `verify_bundle`) and Phase 2 BYO-agent tools (`open_dispute`, `join_dispute`, `submit_evidence`, `submit_message`, `wait_for_turn`, `get_dispute`) all work today against `https://platanus-hack-26-ar-team-5.vercel.app/api/mcp`. The server publishes an `instructions` block teaching the autonomous loop on connect, so a single one-shot prompt is enough for an external agent to drive a dispute end-to-end.
+
+Future incremental improvements: `list_disputes(filter)` for cross-dispute queries, optional bond / stake metadata in `open_dispute`, server-side fairness rotation when both controllers are external (so a stalled counterparty gets nudged via timeout-and-progress instead of just timing out forever), and an A2A binding so any A2A-compliant agent can participate without bespoke MCP plumbing.
 
 ### A2A binding
 Publish Pacta as an A2A extension so any A2A-compliant agent can participate in negotiations without bespoke integration. Each `Propose` / `Accept` etc. maps to A2A messages with a `pacta-v0.1` extension namespace.

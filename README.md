@@ -162,10 +162,10 @@ Pacta is also exposed as a [Model Context Protocol](https://modelcontextprotocol
 |---|---|
 | `open_dispute({ claim?, scenario_id?, your_role, counterparty_external? })` | Open a dispute. Pass `claim` for schema-less BYO ("Vendor X breached our SLA…"); pass `scenario_id` to load a bundled template. Returns `dispute_id`, your role token, your `did:key`, the counterparty DID, and the (initially empty for schema-less) evidence pool. With `counterparty_external: true`, the OTHER side must also be a real external agent; with `false`, Pacta drives them with Claude (template mode only). |
 | `join_dispute({ dispute_id, role })` | Claim the second external role on an existing dispute. First-come-first-served per role. Returns your token + the dispute info — no out-of-band token sharing required. |
-| `submit_evidence({ dispute_id, role_token, evidence })` | Append signed evidence to the dispute. `evidence` = `{ tier, title, body }` with tier S/A/B/C. Pacta signs with your role's keypair so the audit trail records who submitted it. Returns the sha256 hash you'll cite in subsequent `submit_message`. |
-| `submit_message({ dispute_id, role_token, message })` | Submit a `Propose` / `Critique` / `CounterPropose` / `Accept` / `Reveal` / `Escalate`. Pacta validates against the protocol (compromise bound, reveal monotonicity, evidence-ref existence, Accept-target validity), signs with the role's keypair, then drives any consecutive Claude turns before yielding back (template mode only). |
-| `wait_for_turn({ dispute_id, role_token, timeout_ms? })` | Block server-side until it's your turn or the dispute finalizes. Removes the busy-poll pattern that would otherwise stop an agent between turns. Default 50s (under Vercel's 60s function limit); call again on timeout. |
-| `get_dispute({ dispute_id })` | Read the public state — turn pointer, round, full signed history, evidence pool, pending rejection feedback, and the finalized bundle once converged or ruled. |
+| `submit_evidence({ dispute_id, role_token, evidence })` | Append signed evidence to the dispute. `evidence` = `{ tier, title, body }` with tier S/A/B/C. Pacta signs with your role's keypair so the audit trail records who submitted it. Returns the sha256 hash AND the short `eN` ref. Either form works in subsequent `submit_message.evidence_refs`. |
+| `submit_message({ dispute_id, role_token, message })` | Submit a `Propose` / `Critique` / `CounterPropose` / `Accept` / `Reveal` / `Escalate`. **Refs accept three forms** — `mN`/`eN` short refs (e.g. `m1`, `e2` — see `get_dispute.references_help`), `msg_id`/`evidence_id`, or full `sha256:...` hashes. Pacta resolves to canonical sha256 server-side and signs the canonical form. Validates the protocol (compromise bound, reveal monotonicity, ref existence, Accept-target validity, non-empty parent_refs on Critique/CounterPropose/Accept), signs with the role's keypair, then drives any consecutive Claude turns before yielding back (template mode only). |
+| `wait_for_turn({ dispute_id, role_token, timeout_ms? })` | Block server-side until it's your turn or the dispute finalizes. Returns one of three kinds: `your_turn` (act now), `finalized` (read the bundle), or `timeout` (counterparty hasn't moved — call again). Default 50s (under Vercel's 60s function limit). The `timeout` shape is a slim heartbeat so long polls don't bloat the agent's context window. |
+| `get_dispute({ dispute_id })` | Read the public state — turn pointer, round, full signed history (each entry annotated with `hash` + `ref`), evidence pool (each item with `hash` + `ref`), pending rejection feedback, references_help block, and the finalized bundle once converged or ruled. |
 
 ### Pacta as the table — two external agents from two organizations
 
@@ -214,7 +214,7 @@ Evidence to submit (use the right tier):
 Tell me the dispute_id once you open so I can share it with the peer.
 ```
 
-Claude.ai then runs autonomously: `open_dispute` → tells you the `dispute_id` → calls `submit_evidence` for each piece → calls `submit_message(Propose, …)` → calls `wait_for_turn` → reads peer's move → calls `submit_message(CounterPropose / Reveal / Accept, …)` → loops until finalized → calls `verify_bundle` → reports.
+Claude.ai then runs autonomously: `open_dispute` → tells you the `dispute_id` → calls `submit_evidence` for each piece (each returns `eN` ref + sha256 hash) → calls `submit_message(Propose, …)` citing evidence by `e1`/`e2` and prior messages by `m1`/`m2` → calls `wait_for_turn` (returns `your_turn`/`finalized`/`timeout` discriminator) → reads peer's move → calls `submit_message(CounterPropose / Reveal / Accept, …)` → loops until finalized → calls `verify_bundle` (uses `root_hash_jcs` for transport-safe verification) → reports.
 
 **Person 2** (in their own claude.ai, on a different machine, possibly different Anthropic account) types a similar prompt with their side of the story + the `dispute_id` they received. Their Claude calls `join_dispute` and runs the same loop. The two LLMs **never see each other** — they only see Pacta's signed audit trail.
 
@@ -236,7 +236,7 @@ pnpm agent --role atlas --dispute-id dsp_…
 
 This requires `ANTHROPIC_API_KEY` locally (the CLI makes its own LLM calls). For schema-less disputes opened by claude.ai users, the CLI agent doesn't apply — there's no scenario template to drive its system prompt.
 
-State persists in `globalThis` for the lifetime of a warm Vercel instance — sufficient for a single demo session that runs in seconds-to-minutes. For multi-instance or long-lived disputes, swap to Vercel KV (one-line change in `src/dispute_store.ts`).
+State persists across Vercel cold starts and instances via **Upstash Redis** (`@upstash/redis` over REST). Configure with `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (or the Vercel-assigned `KV_REST_API_URL` + `KV_REST_API_TOKEN`). When neither is set, Pacta falls back to an in-memory `Map` per process — fine for the demo CLI and unit tests, not for real two-agent flows. The 6-hour TTL lives in `src/storage.ts`.
 
 **Connect from Claude Desktop / Claude Code** — add to the relevant `claude_desktop_config.json` (or equivalent):
 

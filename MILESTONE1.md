@@ -61,7 +61,7 @@ pnpm verify tmp/last-run.json             # validates every signature and the ro
 
 9. **Bundle assembly** — final artifact is a content-addressed DAG: every signed evidence, every signed message, the convergence outcome (or jury votes + signed ruling), plus a `root_hash` over the canonical bundle minus the hash itself.
 
-10. **Independent verifier** — `pnpm verify <bundle.json>` re-canonicalizes every signed doc, re-checks every Ed25519 signature, and recomputes the bundle root hash. 18/18 checks pass on a successful demo run.
+10. **Independent verifier** — `pnpm verify <bundle.json>` re-canonicalizes every signed doc, re-checks every Ed25519 signature, and validates the bundle root hash. The hash check uses the embedded `root_hash_jcs` (canonical-JCS bytes) when present — that path is byte-deterministic and survives any number of JSON round-trips through transport / storage / serialization. The MCP `verify_bundle` tool follows the same algorithm, so CLI and remote verification produce identical results. 18/18 checks pass on a successful demo run.
 
 11. **Vercel function** — `api/negotiation.ts` exposes `runPacta` as an NDJSON stream over HTTP, with `maxDuration: 60`, Node 22 runtime (required for `@noble/ed25519`). `?mock=1` to force the offline driver.
 
@@ -91,7 +91,7 @@ Total: **27 deterministic + 1 live** = 28 tests; all passing.
 ## What is mocked or descoped (and why)
 
 - **No payments.** Pacta is, by user-confirmed design, a conciliation protocol, not a settlement rail. Wiring x402 / AP2 / Stripe / escrow is one downstream integration of many — see `FUTURE.md`.
-- **In-memory storage per run.** No Postgres / no Vercel KV. State lives in `globalThis` for the duration of one request or one CLI run. Multi-tenant, replay, and history APIs are FUTURE.
+- **Upstash Redis storage when configured.** Set `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (or the Vercel-assigned `KV_REST_API_*` pair) and dispute state survives across Vercel cold starts and instances — what makes the two-agent BYO MCP flow actually work in production. Without those env vars the storage layer falls back to in-memory `Map` per process (fine for unit tests / single-process CLI). 6h TTL by default. Multi-tenant, replay, and richer lifecycle APIs are FUTURE.
 - **Pre-loaded evidence.** The 9 fixtures for the AI-overrun case are baked into the repo. Production would pull from a registry with oracles (TLSNotary, TEE attestation, on-chain commits) and let agents submit fresh evidence per case.
 - **No argumentation-graph viz.** The grounded extension of a Dung framework over the message DAG is on the roadmap (Pacta Pro tier). Today the audit trail is JSON, easily re-rendered.
 - **No web UI.** This was an explicit scope decision: the demo is terminal-first, validated by tests, exposed as an HTTP API. Adding an inspector / replay UI is FUTURE.

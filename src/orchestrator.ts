@@ -13,8 +13,10 @@ import type {
   SignedMessage,
 } from "./types.js";
 
+type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
+
 /** Body of a message the LLM emits — orchestrator fills msg_id, timestamp, signs. */
-export type MessageBody = Omit<Message, "msg_id" | "timestamp">;
+export type MessageBody = DistributiveOmit<Message, "msg_id" | "timestamp">;
 
 /** Pluggable LLM driver: can be a mock (tests) or real Claude (live). */
 export interface LLMDriver {

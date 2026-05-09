@@ -86,7 +86,7 @@ async function drainNegotiation(
   pool: ReturnType<typeof buildEvidencePool>,
   driver: LLMDriver,
 ) {
-  const events: Array<{ kind: string; [k: string]: unknown }> = [];
+  const events: any[] = [];
   const gen = runNegotiation(agents, pool, driver, {
     maxRounds: 5,
     deadlockEpsilon: 0.05,

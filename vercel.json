@@ -1,8 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "functions": {
-    "api/mcp.ts": { "maxDuration": 60 },
-    "api/negotiation.ts": { "maxDuration": 60 }
-  }
+  "framework": "nextjs"
 }

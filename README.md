@@ -42,26 +42,30 @@ for await (const event of runPacta({ scenario: "ai-overrun" })) {
 
 ---
 
-## The flagship demo case
+## Bundled scenarios
 
-**AI inference cost overrun.** A SaaS customer agent (Aria, FinOps role) and an AI provider's account agent (Atlas, account+reliability role) negotiate over a USD 180 000 overage claim caused by a silent model-version regression.
+Three canonical cases ship in the box. Each is a different domain but the same structural pattern: an agent with technical expertise negotiates with an agent backed by contractual or regulatory authority, evidence is tier-classified, hybrid convergence is the productive outcome. Pick a scenario with `--scenario <id>`:
 
-| | |
-|---|---|
-| **Aria** (Customer) | Has the MSA committed-spend amendment, internal benchmarks, provider-signed retry logs, the public changelog. Wants credit + a structural fix. |
-| **Atlas** (Provider) | Has ToS §8.2 (model bumps with 14d notice), public SLA (uptime + latency only), zero support tickets, eval API release notes. Wants to honour SLAs without precedent-setting payouts. |
+```bash
+pnpm run demo --list                          # list scenarios
+pnpm run demo --scenario ai-overrun           # default
+pnpm run demo --scenario oncology
+pnpm run demo --scenario cve-disclosure
+```
 
-Evidence is pre-classified by **tier**: `S` (cryptographically self-verifiable like signed contracts and provider logs), `A` (third-party verifiable like public papers and changelogs), `B` (self-emitted internal policies — weighted less). The jury weighs evidence by tier explicitly.
+| id | Aria-role ↔ Atlas-role | Headline conflict | Verified live convergence (real Claude) |
+|---|---|---|---|
+| `ai-overrun` | **Aria** (SaaS FinOps) ↔ **Atlas** (AI Provider Account) | USD 180k overage claim after a silent model-version regression. ToS §8.2 vs MSA committed-spend. | 5 rounds → **USD 95k credit + Eval API alerts opt-in** |
+| `oncology` | **Aurora** (Hospital authorization) ↔ **Cobra** (Insurer adjudication) | Stage IIIB NSCLC, EGFR−, PD-L1 65%. Hospital prescribes upfront durvalumab; insurer defaults to consolidation per PACIFIC. | 4 rounds → **3-month upfront durva + RECIST reassessment + stopping criteria** |
+| `cve-disclosure` | **Hedge** (OSS maintainer) ↔ **Bastion** (Corporate consumer) | High-severity CVE in MIT-licensed auth library. 7-day window vs claim of insufficient pre-notice; expired commercial agreement. | 3 rounds → **USD 25k/yr Premium renewal + 14-day pre-disclosure + joint policy doc** |
 
-Convergence target (the rounds find it; it is not hardcoded): **USD 90 000 credit + alerts opt-in + customer commits to the eval API at next renewal**. Neither extreme; a hybrid no human had drafted in advance.
+Each scenario brings its own:
 
-The **same structural pattern** also applies to:
+- system prompts for both agents (utility, reservation, private information),
+- 9 pre-loaded evidence items pre-classified by **tier** — `S` (cryptographically self-verifiable: signed contracts, provider-signed logs, lab reports), `A` (third-party verifiable: NEJM papers, NCCN guidelines, public CVE timelines), `B` (self-emitted internal policy — weighted less),
+- a deterministic mock script for offline replay.
 
-- **Healthcare authorization** — hospital agent vs. health insurer agent over a treatment protocol (canonical case: NSCLC IIIB, durvalumab regimen).
-- **Software supply chain** — pentest vendor's agent vs. SaaS company's agent over an SLA-bound vulnerability fix.
-- **Regulatory compliance** — auditor agent vs. regulated entity's agent over interpretation of a control.
-
-Same shape: organization with technical expertise vs. organization with contractual authority, divergent utilities, evidence stratified by verifiability, hybrid convergence is the productive outcome.
+Adding a new scenario is one file in `src/scenarios/<id>.ts` and one line in `src/scenarios/index.ts`. The orchestrator, jury, signing layer and CLI surface are scenario-agnostic.
 
 ---
 
@@ -122,14 +126,21 @@ Loading evidence pool…
 
 ### Production endpoint
 
-The same library is exposed as a Vercel serverless function:
+The same library is exposed as Vercel serverless functions:
 
 ```bash
-curl -N -X POST https://<your-deploy>.vercel.app/api/negotiation \
+# health probe
+curl https://<your-deploy>.vercel.app/api/health
+
+# scenario registry
+curl https://<your-deploy>.vercel.app/api/scenarios
+
+# run a negotiation — NDJSON streams back, one event per line
+curl -N -X POST 'https://<your-deploy>.vercel.app/api/negotiation?scenario=oncology' \
   -H 'content-type: application/json' -d '{}'
 ```
 
-NDJSON streams back, one event per line. Set `?mock=1` to force the deterministic driver.
+Query params: `?mock=1` to force the deterministic driver, `?scenario=<id>` to pick a scenario (defaults to `ai-overrun`). Same params can also live in the JSON body.
 
 ---
 
@@ -156,19 +167,27 @@ src/
   types.ts         The 6 message primitives, Evidence (S/A/B/C tiers),
                    Vote, Ruling, Bundle
   agents.ts        Boot Aria + Atlas + Tribunal at runtime
-  fixtures.ts      9 evidence items pre-signed for the AI-overrun case
+  fixtures.ts      buildEvidencePool(agents, scenario) — signs every seed
   orchestrator.ts  Round-robin loop with compromise bound, reveal monotonicity,
                    evidence-ref validation, convergence detection, deadlock
-                   detection, escalation
-  prompts.ts       ARIA_SYSTEM, ATLAS_SYSTEM, TOOLS for Anthropic
-  claude_driver.ts Real Claude LLM driver (tool_use)
-  mock_driver.ts   Deterministic offline driver
+                   detection, escalation, and rejection_feedback so the LLM
+                   self-corrects on retry
+  prompts.ts       Shared TOOLS catalog for Anthropic tool_use (the 6 primitives)
+  claude_driver.ts Real Claude LLM driver — takes a Scenario for system prompts
+  mock_driver.ts   Deterministic offline driver — replays a Scenario.mock_script
   jury.ts          Three heterogeneous personas (Aequitas/Utilis/Velox)
                    running on Sonnet 4.5 / Opus 4.5 / Haiku 4.5
-  pacta.ts         Public API: runPacta() generator → Bundle
+  pacta.ts         Public API: runPacta({ scenario, mock }) → Bundle
+  scenarios/
+    types.ts             Scenario, EvidenceSeed, ScenarioMockStep
+    index.ts             SCENARIOS registry, getScenario(), listScenarios()
+    ai-overrun.ts        Aria ↔ Atlas
+    oncology.ts          Aurora ↔ Cobra
+    cve-disclosure.ts    Hedge ↔ Bastion
 
 api/
-  negotiation.ts   Vercel serverless: NDJSON stream of all events
+  negotiation.ts   Vercel serverless: NDJSON stream; ?scenario=, ?mock=
+  scenarios.ts     GET /api/scenarios returns the registry
   health.ts        Liveness probe with key presence
 
 examples/cli-demo.ts   The "live demo" — runs against Claude or mock

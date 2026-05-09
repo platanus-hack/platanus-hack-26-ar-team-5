@@ -4,7 +4,17 @@ What we built in the 3-hour Platanus Hack 26 window. Honest line between real an
 
 ## What ships, end-to-end
 
-A self-contained TypeScript implementation of a deliberation / negotiation / conciliation protocol between two AI agents. One CLI demo, one Vercel serverless endpoint, 27 passing tests, an externally-runnable verifier.
+A self-contained TypeScript implementation of a deliberation / negotiation / conciliation protocol between two AI agents, scenario-driven so adding a new domain is a single file. Three canonical scenarios bundled, all live-validated against Claude. CLI demo, Vercel serverless endpoint, 32 mocked tests, an externally-runnable verifier.
+
+## Scenarios shipped + live-validated against Claude
+
+| id | Roles | Convergence reached live | Rounds | Bundle sigs |
+|---|---|---|---|---|
+| `ai-overrun` | Aria (FinOps) ↔ Atlas (AI Provider Account) | USD 95k credit + Eval API alerts opt-in at next renewal | 5 | 17 / 17 |
+| `oncology` | Aurora (Hospital authorization) ↔ Cobra (Insurer adjudication) | 3-month upfront durva + RECIST reassessment + stopping criteria | 4 | 17 / 17 |
+| `cve-disclosure` | Hedge (OSS maintainer) ↔ Bastion (Corporate consumer) | USD 25k Premium renewal + 14-day pre-disclosure + joint policy doc | 3 | 16 / 16 |
+
+All three reached **non-trivial hybrid convergence** that no single party had drafted in advance — the rounds produced the deal. Adding a fourth scenario is one file in `src/scenarios/`.
 
 ```
 pnpm install

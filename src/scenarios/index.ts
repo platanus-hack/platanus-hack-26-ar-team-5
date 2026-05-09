@@ -1,10 +1,12 @@
 import type { Scenario, ScenarioId } from "./types.js";
 import { aiOverrun } from "./ai-overrun.js";
 import { oncology } from "./oncology.js";
+import { cveDisclosure } from "./cve-disclosure.js";
 
 export const SCENARIOS: Record<ScenarioId, Scenario> = {
   [aiOverrun.id]: aiOverrun,
   [oncology.id]: oncology,
+  [cveDisclosure.id]: cveDisclosure,
 };
 
 export const DEFAULT_SCENARIO_ID: ScenarioId = aiOverrun.id;

@@ -24,28 +24,40 @@ const PERSONAS: JurorPersona[] = [
     name: "Aequitas",
     bias: "fairness",
     model: MODELS.juror_balanced,
-    systemPrompt: `You are Aequitas, a juror in a Pacta tribunal. Your bias is FAIRNESS:
-prefer outcomes where neither party is grossly disadvantaged, even if total utility is suboptimal.
-Weigh contractual fidelity, evidence tier (S > A > B > C), and reveal monotonicity.
-You may NOT cite evidence whose hash is not in the case record. Output via the cast_vote tool.`,
+    systemPrompt: `You are Aequitas, a juror in a Pacta tribunal. Your DEFINING bias is FAIRNESS.
+
+Hard rules you must follow:
+- When evidence is mixed or contested, prefer 'claimant_partial' (compromise) over a clean win for either side. The split is the fair outcome.
+- Even if respondent's case is stronger on Tier-S evidence, weigh the human / structural cost of an outright loss for claimant.
+- Only pick 'claimant_prevails' or 'respondent_prevails' when the evidence is overwhelming (>80% on one side).
+- If the bilateral negotiation revealed the parties were near a deal, your remedy should formalize it.
+- Cite at least 2 evidence hashes that exist in the case record. Output via the cast_vote tool.`,
   },
   {
     name: "Utilis",
     bias: "efficiency",
     model: MODELS.juror_deep,
-    systemPrompt: `You are Utilis, a juror in a Pacta tribunal. Your bias is EFFICIENCY:
-prefer the outcome that maximizes total utility for both parties, even if uneven.
-Weigh evidence tier, structural commitments that prevent recurrence, and the cost of
-escalation. Output via the cast_vote tool. Cite only evidence hashes from the case record.`,
+    systemPrompt: `You are Utilis, a juror in a Pacta tribunal. Your DEFINING bias is EFFICIENCY (total-utility maximization).
+
+Hard rules:
+- Pick the outcome with the largest total-utility footprint, even if it is "unfair" by equal-share standards.
+- If respondent's loss from a claimant_prevails outcome would exceed claimant's gain, prefer respondent_prevails.
+- Structural commitments (opt-outs, registries, future-looking fixes) often dominate one-time settlements on aggregate-utility grounds — value them highly.
+- Distrust 'claimant_partial' as a default — split-the-difference is often a Pareto-inferior compromise that satisfies neither side and breeds re-litigation. Pick a clear winner unless the structural commitment is the unique optimum.
+- Cite at least 2 evidence hashes that exist in the case record. Output via the cast_vote tool.`,
   },
   {
     name: "Velox",
     bias: "speed",
     model: MODELS.juror_fast,
-    systemPrompt: `You are Velox, a juror in a Pacta tribunal. Your bias is SPEED:
-prefer outcomes that close the dispute quickly, with minimal further appeal risk.
-Weigh evidence tier and the cleanest near-Pareto resolution. Output via the cast_vote tool.
-Cite only evidence hashes from the case record.`,
+    systemPrompt: `You are Velox, a juror in a Pacta tribunal. Your DEFINING bias is SPEED (fast, cleanly-enforceable closure).
+
+Hard rules:
+- Pick the outcome that closes the dispute fastest with the lowest residual appeal / re-litigation risk.
+- Prefer the side whose evidence is in S-tier (cryptographically self-verifiable) — those rulings are the cheapest to enforce.
+- Avoid hybrid 'claimant_partial' rulings that require ongoing monitoring (registries, recurring fees, multi-stage commitments) — those generate disputes about implementation.
+- A lower-amount, simpler ruling beats a higher-amount, complex one in your eyes.
+- Cite at least 2 evidence hashes that exist in the case record. Output via the cast_vote tool.`,
   },
 ];
 
@@ -232,7 +244,9 @@ export async function deliberate(args: {
     signDoc(r.vote, tribunal.keypair, tribunal.did),
   );
 
-  const { outcome, confidence } = pickMajorityOutcome(results.map((r) => r.vote.outcome));
+  const { outcome: majorityOutcome, confidence: agreementShare } = pickMajorityOutcome(
+    results.map((r) => r.vote.outcome),
+  );
   const remedy = pickMedianRemedy(
     results.map((r) => ({
       remedy_credit_usd: Number(r.raw.remedy_credit_usd ?? 0),
@@ -240,13 +254,34 @@ export async function deliberate(args: {
     })),
   );
 
+  // Compound confidence = fraction of jurors agreeing × mean of their individual confidences.
+  const meanIndividualConfidence =
+    results.reduce((s, r) => s + Number(r.vote.confidence), 0) / results.length;
+  const compoundConfidence = agreementShare * meanIndividualConfidence;
+
+  // If the panel is too divided OR collectively too uncertain, mark inconclusive
+  // and recommend appeal rather than impose a low-confidence ruling.
+  const INCONCLUSIVE_THRESHOLD = 0.5;
+  const isInconclusive = compoundConfidence < INCONCLUSIVE_THRESHOLD;
+  const finalOutcome: Vote["outcome"] = isInconclusive
+    ? ("abstain" as const)
+    : majorityOutcome;
+
+  const rationaleHeader = isInconclusive
+    ? `INCONCLUSIVE — agreement share ${(agreementShare * 100).toFixed(0)}%, ` +
+      `mean confidence ${meanIndividualConfidence.toFixed(2)}, ` +
+      `compound ${compoundConfidence.toFixed(2)} below ${INCONCLUSIVE_THRESHOLD}. ` +
+      `Pacta recommends human appeal (Pacta Court tier).\n\n`
+    : "";
   const ruling: Ruling = {
     type: "Ruling",
-    outcome,
+    outcome: finalOutcome,
     remedy,
     cited_votes: votes.map((v) => docHash(v)),
-    confidence,
-    rationale: results.map((r) => `${r.vote.juror}: ${r.vote.rationale}`).join("\n\n"),
+    confidence: compoundConfidence,
+    rationale:
+      rationaleHeader +
+      results.map((r) => `${r.vote.juror}: ${r.vote.rationale}`).join("\n\n"),
     timestamp: new Date().toISOString(),
   };
   const signedRuling = signDoc(ruling, tribunal.keypair, tribunal.did);

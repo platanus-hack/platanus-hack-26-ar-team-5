@@ -9,8 +9,14 @@ import { hash as hashOf } from "../src/canonical.js";
 import { docHash, verifySignedDoc } from "../src/sign.js";
 import { runPacta, listScenarios } from "../src/pacta.js";
 
+// Scenarios that converge bilaterally in mock mode are tested here.
+// Deadlock scenarios (mock script designed to escalate to jury) are exercised
+// in the dedicated live run + verifier — running them in this smoke test
+// would call the live jury 3-LLM panel and burn API budget.
+const CONVERGING = ["ai-overrun", "oncology", "cve-disclosure", "creative-brief"];
+
 describe("scenarios (mocked smoke)", () => {
-  for (const sc of listScenarios()) {
+  for (const sc of listScenarios().filter((s) => CONVERGING.includes(s.id))) {
     it(`${sc.id} runs end-to-end with a mock driver`, async () => {
       const events: any[] = [];
       let bundle: any = null;

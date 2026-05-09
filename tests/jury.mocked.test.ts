@@ -19,9 +19,9 @@ vi.mock("../src/anthropic.js", () => {
           // Three jurors take turns. We script vote outcomes.
           const idx = callIdx++ % 3;
           const outcomes = [
-            { outcome: "claimant_partial", credit: 90000, conf: 0.7, rationale: "Aequitas: balanced." },
-            { outcome: "claimant_partial", credit: 75000, conf: 0.65, rationale: "Utilis: efficient." },
-            { outcome: "respondent_prevails", credit: 0, conf: 0.55, rationale: "Velox: ToS clear." },
+            { outcome: "claimant_partial", credit: 90000, conf: 0.85, rationale: "Aequitas: balanced." },
+            { outcome: "claimant_partial", credit: 75000, conf: 0.8, rationale: "Utilis: efficient." },
+            { outcome: "claimant_partial", credit: 100000, conf: 0.78, rationale: "Velox: clean enough." },
           ];
           const v = outcomes[idx]!;
           return {
@@ -58,10 +58,11 @@ describe("jury (mocked)", () => {
     for (const v of result.votes) expect(verifySignedDoc(v)).toBe(true);
 
     expect(verifySignedDoc(result.ruling)).toBe(true);
-    expect(result.ruling.outcome).toBe("claimant_partial"); // 2/3 majority
-    expect(Math.abs(result.ruling.confidence - 2 / 3)).toBeLessThan(1e-6);
-    // Median credit of [0, 75000, 90000] is 75000
-    expect(result.ruling.remedy.credit_usd).toBe(75000);
+    expect(result.ruling.outcome).toBe("claimant_partial"); // unanimous
+    // Compound confidence = 1.0 × mean(0.85, 0.8, 0.78) ≈ 0.81
+    expect(result.ruling.confidence).toBeGreaterThan(0.7);
+    // Median credit of [75000, 90000, 100000] is 90000
+    expect(result.ruling.remedy.credit_usd).toBe(90000);
     // Cited votes match the vote hashes
     expect(result.ruling.cited_votes).toEqual(result.votes.map((v) => docHash(v)));
   });

@@ -3,12 +3,16 @@ import { aiOverrun } from "./ai-overrun.js";
 import { oncology } from "./oncology.js";
 import { cveDisclosure } from "./cve-disclosure.js";
 import { creativeBrief } from "./creative-brief.js";
+import { deadlockLeak } from "./deadlock-leak.js";
+import { deadlockFairuse } from "./deadlock-fairuse.js";
 
 export const SCENARIOS: Record<ScenarioId, Scenario> = {
   [aiOverrun.id]: aiOverrun,
   [oncology.id]: oncology,
   [cveDisclosure.id]: cveDisclosure,
   [creativeBrief.id]: creativeBrief,
+  [deadlockLeak.id]: deadlockLeak,
+  [deadlockFairuse.id]: deadlockFairuse,
 };
 
 export const DEFAULT_SCENARIO_ID: ScenarioId = aiOverrun.id;

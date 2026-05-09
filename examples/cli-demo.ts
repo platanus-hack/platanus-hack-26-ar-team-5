@@ -189,15 +189,25 @@ async function main() {
           console.log(pc.gray(`        "${text}"`));
         }
         break;
-      case "jury.ruling":
+      case "jury.ruling": {
         console.log("");
+        const isAbstain = ev.ruling.outcome === "abstain";
+        const tag = isAbstain
+          ? pc.red("⚖  INCONCLUSIVE  ")
+          : pc.yellow("⚖  RULING  ");
         console.log(
-          pc.bold(pc.yellow("⚖  RULING  ")) +
+          pc.bold(tag) +
             pc.bold(ev.ruling.outcome) +
             pc.gray(`  conf ${ev.ruling.confidence.toFixed(2)}`),
         );
+        if (isAbstain) {
+          console.log(
+            pc.red("   Pacta recommends appeal to Pacta Court tier (human review)."),
+          );
+        }
         console.log("   Remedy: " + fmtState(ev.ruling.remedy));
         break;
+      }
       case "bundle": {
         const b = ev.bundle;
         bundle = b;
@@ -207,10 +217,16 @@ async function main() {
         console.log("   evidence:      " + b.evidence.length);
         console.log("   outcome.kind:  " + pc.bold(b.outcome.kind));
         console.log("   root_hash:     " + pc.gray(shortHash(b.root_hash)));
-        mkdirSync("tmp", { recursive: true });
-        writeFileSync("tmp/last-run.json", JSON.stringify(b, null, 2));
-        console.log("   saved:         " + pc.cyan("tmp/last-run.json"));
-        console.log(pc.gray("   verify with:   pnpm verify tmp/last-run.json"));
+        mkdirSync("tmp/runs", { recursive: true });
+        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        const modeTag = mock ? "mock" : "live";
+        const archivePath = `tmp/runs/${b.scenario}-${modeTag}-${ts}.json`;
+        const json = JSON.stringify(b, null, 2);
+        writeFileSync(archivePath, json);
+        writeFileSync("tmp/last-run.json", json);
+        console.log("   saved:         " + pc.cyan(archivePath));
+        console.log("   alias:         " + pc.gray("tmp/last-run.json"));
+        console.log(pc.gray("   verify with:   pnpm verify " + archivePath));
         break;
       }
     }

@@ -32,3 +32,6 @@ tmp/
 .vercel/
 
 .vercel
+
+# Claude Code internal
+.claude/

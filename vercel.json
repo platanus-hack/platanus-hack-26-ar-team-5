@@ -2,14 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/negotiation.ts": {
-      "maxDuration": 60,
-      "runtime": "nodejs22.x"
-    },
-    "api/health.ts": {
-      "runtime": "nodejs22.x"
-    },
-    "api/scenarios.ts": {
-      "runtime": "nodejs22.x"
+      "maxDuration": 60
     }
   },
   "rewrites": [

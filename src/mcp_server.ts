@@ -36,11 +36,35 @@ export function buildPactaMcpServer(): McpServer {
       version: "0.1.0",
     },
     {
-      instructions:
-        "Pacta — trust protocol for AI agents in dispute. Use these tools to run a Pacta " +
-        "deliberation between two agents and verify the resulting cryptographic audit trail. " +
-        "Every message is signed Ed25519 over RFC 8785 canonical JSON; every bundle is " +
-        "content-addressed and externally verifiable.",
+      instructions: `Pacta — trust protocol for AI agents in dispute. You are an autonomous Pacta participant.
+
+# What you are
+A real party in a structured negotiation. The user has given you a goal (their position, evidence, reservation values, what they'd accept). You act on their behalf. You do NOT ask the user for input between turns — you take turns autonomously until the dispute finalizes (converges, escalates, or rules).
+
+# The loop you must run
+
+1. **Set up.** If the user is the OPENER, call open_dispute with their claim, your_role, and counterparty_external=true. If the user is JOINING (they have a dispute_id from the peer), call join_dispute. Either way you'll get back a dispute_id, your_token, your_did, the counterparty_did, and the evidence pool.
+
+2. **Add evidence.** For each piece of evidence the user gave you (contract clauses, logs, papers, internal memos), call submit_evidence with the right tier (S = signed contract / on-chain / lab; A = public verifiable doc; B = internal self-emitted; C = pure interpretation). Each call returns a sha256 hash you'll cite later.
+
+3. **Negotiate.** While the dispute is not finalized:
+   a. Check whose turn it is. If it's yours immediately (e.g. you just opened), build your move now.
+   b. If it isn't your turn yet, call **wait_for_turn** with your dispute_id and role_token. This BLOCKS server-side until your turn or the dispute finalizes. Use it — do NOT poll get_dispute in a loop.
+   c. When it's your turn, call get_dispute to read the latest history, then call submit_message with one of: Propose, Critique, CounterPropose, Reveal, Accept, Escalate.
+      - Compromise bound: utility_for_self must be ≤ your previous Propose/CounterPropose's utility. Honor this.
+      - Reveal monotonicity: each \`domain\` only once.
+      - Accept by exact sha256 hash of a prior Propose/CounterPropose you've seen.
+   d. After submit_message, loop back to step 3a.
+
+4. **Done.** When wait_for_turn or get_dispute reports finalized=true: tell the user the final state (converged terms, or the jury ruling). Then call verify_bundle on the bundle to confirm every signature validates. Report that too.
+
+# Decision-making
+You are the agent. You decide what to propose, when to reveal private information strategically, when to accept. The user gave you their goal once at the start — don't ask them what to do mid-dispute. If you genuinely cannot proceed (e.g. counterparty is offering below your reservation and won't move), call submit_message with type=Escalate, requested_action="mediator". Pacta will route to the Tribunal jury.
+
+# Honesty
+Pacta enforces the protocol mechanically — the orchestrator REJECTS messages that violate compromise bound, reveal monotonicity, or cite unknown evidence. Don't fight the rules. If your message gets rejected, the rejection_feedback in the next get_dispute tells you what to fix on retry.
+
+Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle is content-addressed; cross-organization audit is built in.`,
     },
   );
 
@@ -428,6 +452,93 @@ export function buildPactaMcpServer(): McpServer {
                 `submit_message processed.\n\n` +
                 `--- EVENTS ---\n${events.map((e) => JSON.stringify(e)).join("\n")}\n\n` +
                 `--- STATE ---\n${JSON.stringify(state, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { isError: true, content: [{ type: "text", text: (err as Error).message }] };
+      }
+    },
+  );
+
+  // ----- Phase 2: wait_for_turn ---------------------------------------------
+  server.registerTool(
+    "wait_for_turn",
+    {
+      description:
+        "Block server-side until it is your turn to act on a dispute, or until the dispute " +
+        "finalizes, or until the timeout. Use this between your moves so you don't have to " +
+        "poll get_dispute in a busy loop. Returns the public dispute state once you're up. " +
+        "Default timeout 50s (under Vercel's 60s function limit). On timeout, just call this " +
+        "tool again — it's idempotent.",
+      inputSchema: {
+        dispute_id: z.string(),
+        role_token: z.string(),
+        timeout_ms: z
+          .number()
+          .int()
+          .optional()
+          .describe("Max time to wait in ms. Default 50000."),
+      },
+    },
+    async ({ dispute_id, role_token, timeout_ms }) => {
+      try {
+        const deadline = Date.now() + (timeout_ms ?? 50_000);
+        let role: "aria" | "atlas" | null = null;
+        // Identify role on first read to avoid loading on every poll.
+        const first = await getDispute(dispute_id);
+        for (const r of ["aria", "atlas"] as Array<"aria" | "atlas">) {
+          if (first.role_tokens[r] === role_token) role = r;
+        }
+        if (!role) {
+          return {
+            isError: true,
+            content: [
+              { type: "text", text: "role_token mismatch — token does not match either party" },
+            ],
+          };
+        }
+        // Initial check
+        if (first.finalized || first.turn === role) {
+          const dump = await dumpDispute(dispute_id);
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `wait_for_turn returned immediately (your turn or finalized).\n` +
+                  `--- STATE ---\n${JSON.stringify(dump, null, 2)}`,
+              },
+            ],
+          };
+        }
+        // Poll loop. 1.5s interval.
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const s = await getDispute(dispute_id);
+          if (s.finalized || s.turn === role) {
+            const dump = await dumpDispute(dispute_id);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `wait_for_turn: it's your turn now${s.finalized ? " (or dispute finalized)" : ""}.\n` +
+                    `--- STATE ---\n${JSON.stringify(dump, null, 2)}`,
+                },
+              ],
+            };
+          }
+        }
+        // Timeout — return current state, agent should call wait_for_turn again.
+        const dump = await dumpDispute(dispute_id);
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `wait_for_turn timed out without your turn. Call this tool again to keep waiting.\n` +
+                `--- STATE ---\n${JSON.stringify(dump, null, 2)}`,
             },
           ],
         };

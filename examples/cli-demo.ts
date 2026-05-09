@@ -1,0 +1,192 @@
+#!/usr/bin/env tsx
+import { mkdirSync, writeFileSync } from "node:fs";
+import pc from "picocolors";
+import { loadEnv } from "../src/env.js";
+import { runPacta } from "../src/pacta.js";
+
+loadEnv();
+
+function shortHash(h: string): string {
+  return h.length > 18 ? `${h.slice(0, 14)}…${h.slice(-2)}` : h;
+}
+
+function shortDid(d: string): string {
+  return d.length > 30 ? `${d.slice(0, 15)}…${d.slice(-6)}` : d;
+}
+
+const ROLE_TAG: Record<string, string> = {
+  aria: pc.cyan("Aria  "),
+  atlas: pc.magenta("Atlas "),
+  tribunal: pc.yellow("Tribu "),
+};
+
+function banner() {
+  console.log("");
+  console.log(pc.bold(pc.white("╭──────────────────────────────────────────────────────────────────╮")));
+  console.log(
+    pc.bold(pc.white("│  ⚖")) +
+      pc.bold(pc.white("  Pacta — Trust protocol for AI agents in dispute             ")) +
+      pc.bold(pc.white("│")),
+  );
+  console.log(
+    pc.bold(pc.white("│  Case: AI inference cost overrun (Aria @ Customer ↔ Atlas @ Provider)")),
+  );
+  console.log(
+    pc.bold(pc.white("╰──────────────────────────────────────────────────────────────────╯")),
+  );
+  console.log("");
+}
+
+function fmtState(state: { credit_usd: number; terms: string }): string {
+  return `{ credit_usd: ${pc.green("$" + state.credit_usd.toLocaleString())}, terms: ${pc.gray('"' + state.terms + '"')} }`;
+}
+
+async function main() {
+  banner();
+
+  const useMock = process.env.PACTA_MOCK === "1" || process.argv.includes("--mock");
+
+  if (!useMock && !process.env.ANTHROPIC_API_KEY) {
+    console.log(
+      pc.yellow(
+        "⚠  ANTHROPIC_API_KEY is not set. Falling back to deterministic mock driver.",
+      ),
+    );
+    console.log(
+      pc.gray(
+        "    For the live LLM demo: cp .env.example .env.local && edit, then re-run.",
+      ),
+    );
+    console.log("");
+  }
+  const mock = useMock || !process.env.ANTHROPIC_API_KEY;
+  if (mock) {
+    console.log(pc.gray("Mode: mock (no LLM calls)"));
+  } else {
+    console.log(pc.gray("Mode: live (Claude — sonnet-4-5)"));
+  }
+
+  let currentRound = 0;
+  const start = Date.now();
+  let bundle: Awaited<ReturnType<typeof runPacta>> extends AsyncGenerator<infer _E, infer R, infer __> ? R : never;
+  // ^ tighter typing not needed for cli; use any
+
+  for await (const ev of runPacta({ mock })) {
+    switch (ev.kind) {
+      case "agent.boot":
+        console.log(`  ✓ ${ROLE_TAG[ev.role] ?? ev.role}  ${shortDid(ev.did)}`);
+        break;
+      case "evidence.loaded":
+        console.log("");
+        console.log(pc.bold(`Loading evidence pool…`));
+        for (const e of ev.items) {
+          const tierColor =
+            e.tier === "S" ? pc.green : e.tier === "A" ? pc.cyan : e.tier === "B" ? pc.yellow : pc.gray;
+          console.log(`  ${tierColor("[" + e.tier + "]")}  ${pc.gray(shortHash(e.hash))}  ${e.id}`);
+        }
+        console.log(pc.gray(`  All ${ev.count} items signed and content-addressed ✓`));
+        break;
+      case "round.start":
+        currentRound = ev.round;
+        console.log("");
+        console.log(pc.bold(pc.white(`— Round ${ev.round} ${"─".repeat(58)}`)));
+        break;
+      case "message.rejected":
+        console.log(
+          `  ${pc.red("✗")} ${ROLE_TAG[ev.role] ?? ev.role}  ${pc.red("rejected")}  ${pc.gray("attempt " + ev.attempt + ":")} ${ev.reason}`,
+        );
+        break;
+      case "message.accepted": {
+        const m = ev.signed;
+        const tag = ROLE_TAG[ev.role] ?? ev.role;
+        const head = `  ${pc.green("▶")} ${tag} ${pc.bold(m.type.padEnd(18))}  ${pc.gray(shortHash(ev.hash))}  ${pc.green("Ed25519 ✓")}`;
+        console.log(head);
+        if (m.type === "Propose" || m.type === "CounterPropose") {
+          console.log(`        state: ${fmtState(m.payload.state)}`);
+          console.log(
+            pc.gray(`        utility: ${m.payload.utility_for_self.toFixed(2)}    refs: ${m.evidence_refs.length}`),
+          );
+          if (m.payload.rationale) {
+            const text = m.payload.rationale.length > 140 ? m.payload.rationale.slice(0, 140) + "…" : m.payload.rationale;
+            console.log(pc.gray(`        "${text}"`));
+          }
+        } else if (m.type === "Critique") {
+          console.log(pc.gray(`        target: ${shortHash(m.payload.target_msg_hash)}`));
+          if (m.payload.rationale)
+            console.log(pc.gray(`        "${m.payload.rationale.slice(0, 140)}"`));
+        } else if (m.type === "Reveal") {
+          console.log(pc.gray(`        domain: ${m.payload.domain}`));
+          console.log(pc.gray(`        "${m.payload.information.slice(0, 140)}"`));
+        } else if (m.type === "Accept") {
+          console.log(pc.gray(`        accepts: ${shortHash(m.payload.target_msg_hash)}`));
+        } else if (m.type === "Escalate") {
+          console.log(pc.gray(`        reason: ${m.payload.reason}  →  ${m.payload.requested_action}`));
+        }
+        break;
+      }
+      case "convergence":
+        console.log("");
+        console.log(
+          pc.bold(pc.green("✅  CONVERGED  ")) +
+            pc.gray(`in ${currentRound} rounds (${((Date.now() - start) / 1000).toFixed(1)}s wall)`),
+        );
+        console.log("   Final state:    " + fmtState(ev.final_state));
+        console.log("   Accepted hash:  " + pc.gray(shortHash(ev.accepted_msg_hash)));
+        break;
+      case "deadline":
+        console.log("");
+        console.log(pc.yellow("⏱  Max rounds reached without convergence."));
+        break;
+      case "deadlock":
+        console.log("");
+        console.log(pc.yellow(`⏸  Deadlock: ${ev.reason}`));
+        break;
+      case "escalation":
+        console.log(pc.yellow(`↗  Escalating to Tribunal (${ev.reason})…`));
+        break;
+      case "jury.start":
+        console.log("");
+        console.log(pc.bold(pc.yellow(`— Tribunal deliberation ${"─".repeat(46)}`)));
+        break;
+      case "jury.vote":
+        console.log(
+          `  ${pc.yellow("⚖")} Juror ${pc.bold(ev.vote.juror)} (${pc.gray(ev.vote.juror_model)})  →  ${pc.bold(ev.vote.outcome)}  ${pc.gray("conf " + ev.vote.confidence.toFixed(2))}`,
+        );
+        if (ev.vote.rationale) {
+          const text = ev.vote.rationale.length > 200 ? ev.vote.rationale.slice(0, 200) + "…" : ev.vote.rationale;
+          console.log(pc.gray(`        "${text}"`));
+        }
+        break;
+      case "jury.ruling":
+        console.log("");
+        console.log(
+          pc.bold(pc.yellow("⚖  RULING  ")) +
+            pc.bold(ev.ruling.outcome) +
+            pc.gray(`  conf ${ev.ruling.confidence.toFixed(2)}`),
+        );
+        console.log("   Remedy: " + fmtState(ev.ruling.remedy));
+        break;
+      case "bundle": {
+        const b = ev.bundle;
+        bundle = b;
+        console.log("");
+        console.log(pc.bold("Bundle"));
+        console.log("   messages:      " + b.messages.length);
+        console.log("   evidence:      " + b.evidence.length);
+        console.log("   outcome.kind:  " + pc.bold(b.outcome.kind));
+        console.log("   root_hash:     " + pc.gray(shortHash(b.root_hash)));
+        mkdirSync("tmp", { recursive: true });
+        writeFileSync("tmp/last-run.json", JSON.stringify(b, null, 2));
+        console.log("   saved:         " + pc.cyan("tmp/last-run.json"));
+        console.log(pc.gray("   verify with:   pnpm verify tmp/last-run.json"));
+        break;
+      }
+    }
+  }
+  console.log("");
+}
+
+main().catch((err) => {
+  console.error(pc.red("Demo failed:"), err);
+  process.exit(1);
+});

@@ -184,16 +184,41 @@ Add the Pacta MCP as a custom connector pointed at:
 https://platanus-hack-26-ar-team-5.vercel.app/api/mcp
 ```
 
-Two-organization demo flow:
+Pacta's MCP server publishes an **`instructions`** block when the client connects. The block teaches the agent the autonomous loop: open or join → submit evidence → if my turn submit_message else wait_for_turn → repeat until finalized → verify_bundle. So **one prompt is enough**: the agent runs the negotiation end-to-end, no human in the middle telling it "respond now" or "their move was X, what's yours".
 
-1. **Person 1** (Customer's side) tells their Claude: *"Open a Pacta dispute. The claim: 'Vendor X delivered our payments integration 3 weeks late and we invoke the SLA penalty clause.' I'll be aria. Other side will be external."*
-   - Claude calls `open_dispute({ claim, your_role: "aria", counterparty_external: true })` and returns the `dispute_id`.
-2. Person 1 sends the `dispute_id` to **Person 2** (over Slack, paper, whatever).
-3. **Person 2** (Vendor's side) tells their Claude: *"Join Pacta dispute dsp_xxx as atlas."*
-   - Claude calls `join_dispute({ dispute_id, role: "atlas" })` and gets its token.
-4. Each side adds their own evidence: *"Submit this contract clause as Tier S evidence."* → Claude calls `submit_evidence` and gets back the sha256 hash.
-5. Each side proposes / counters / reveals / accepts based on what THEY want — not from any prompt we shipped. *"Submit a Propose with state {credit_usd: 50000, terms: ...} citing those two evidence hashes, util 0.92."* → Claude calls `submit_message`.
-6. Convergence → signed bundle. Either side: *"Verify the bundle."* → Claude calls `verify_bundle`. 100% of signatures must validate.
+#### One-prompt agentic flow (the real product)
+
+**Person 1** in their claude.ai (with the Pacta connector configured) types one prompt:
+
+```
+You are our company's negotiating agent. Use the Pacta MCP to run this dispute end-to-end. Don't ask me anything until it's finalized.
+
+Claim: Vendor X delivered our payments integration 3 weeks late
+       and we invoke the SLA penalty clause (USD 50k credit per the contract).
+Your role: aria. Counterparty is external (Vendor's agent).
+Your reservation value: 0.30 — below this, escalate to mediator.
+Private info you may reveal strategically:
+  - Our litigation cost estimate is USD 80k, so settlement up to 60k is preferable
+    to court even at low likelihood of full recovery.
+  - We have a renewal coming up; we'd accept reduced credit if Vendor commits
+    to specific reliability SLAs in writing.
+
+Evidence to submit (use the right tier):
+  - "Master Services Agreement §7.2 — SLA penalty clause" (tier S, signed contract)
+  - "Provider audit log showing 21-day delay in milestone 3" (tier S, provider-signed)
+  - "Industry benchmark: 5–10 day typical for similar integrations" (tier A, public)
+  - "Internal cost-of-delay memo" (tier B, self-emitted)
+
+Tell me the dispute_id once you open so I can share it with the peer.
+```
+
+Claude.ai then runs autonomously: `open_dispute` → tells you the `dispute_id` → calls `submit_evidence` for each piece → calls `submit_message(Propose, …)` → calls `wait_for_turn` → reads peer's move → calls `submit_message(CounterPropose / Reveal / Accept, …)` → loops until finalized → calls `verify_bundle` → reports.
+
+**Person 2** (in their own claude.ai, on a different machine, possibly different Anthropic account) types a similar prompt with their side of the story + the `dispute_id` they received. Their Claude calls `join_dispute` and runs the same loop. The two LLMs **never see each other** — they only see Pacta's signed audit trail.
+
+#### Older flow with humans in the loop
+
+If you'd rather drive the negotiation manually (chat with each Claude per turn, tell it what to submit), all the tools work fine without the autonomous loop. Just don't include "don't ask me anything until finalized" in the prompt.
 
 #### Reference CLI agent (autonomous)
 

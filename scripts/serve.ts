@@ -10,9 +10,9 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { buildPactaMcpServer } from "../src/mcp_server.js";
-import { listScenarios, runPacta } from "../src/pacta.js";
-import { loadEnv } from "../src/env.js";
+import { buildPactaMcpServer } from "../src/mcp_server";
+import { listScenarios, runPacta } from "../src/pacta";
+import { loadEnv } from "../src/env";
 
 loadEnv();
 

@@ -15,19 +15,19 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runPacta, listScenarios, getScenario } from "./pacta.js";
-import { verifySignedDoc, docHash } from "./sign.js";
-import { hash as hashOf } from "./canonical.js";
+import { runPacta, listScenarios, getScenario } from "./pacta";
+import { verifySignedDoc, docHash } from "./sign";
+import { hash as hashOf } from "./canonical";
 import {
   openDispute,
   joinDispute,
   getDispute,
   dumpDispute,
   submitEvidence,
-} from "./dispute_store.js";
-import { submitExternalMessage, advanceClaudeTurns, publicState } from "./dispute_engine.js";
-import type { Bundle } from "./types.js";
-import type { MessageBody } from "./orchestrator.js";
+} from "./dispute_store";
+import { submitExternalMessage, advanceClaudeTurns, publicState } from "./dispute_engine";
+import type { Bundle } from "./types";
+import type { MessageBody } from "./orchestrator";
 
 export function buildPactaMcpServer(): McpServer {
   const server = new McpServer(
@@ -455,7 +455,10 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
         "Accept must target a real prior Propose/CounterPropose. CounterPropose / Critique / " +
         "Accept require non-empty parent_refs; Propose may be empty only at round 1. " +
         "Refs accept short forms — see evidence_refs / parent_refs descriptions. " +
-        "The signed message always carries canonical sha256, regardless of which form you submit.",
+        "The signed message always carries canonical sha256, regardless of which form you submit. " +
+        "Submitting type=Escalate immediately routes to the Tribunal jury (3 Claude jurors with " +
+        "fairness/efficiency/speed biases) and finalizes the dispute with a signed ruling bundle. " +
+        "The Escalate itself is signed into history first, so the audit trail records who triggered it.",
       inputSchema: {
         dispute_id: z.string(),
         role_token: z.string().describe("The token returned by open_dispute for your role."),

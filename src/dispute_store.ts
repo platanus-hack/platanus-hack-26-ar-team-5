@@ -9,20 +9,23 @@
  *  - template: pass a `scenario_id` from our bundled library. Pacta pre-loads
  *    that scenario's evidence pool. Useful for canned demos.
  */
-import { docHash, signDoc } from "./sign.js";
-import { hash as hashOf } from "./canonical.js";
-import { getScenario, type Scenario } from "./scenarios/index.js";
+import { docHash, signDoc } from "./sign";
+import { hash as hashOf } from "./canonical";
+import { getScenario, type Scenario } from "./scenarios/index";
 import {
+  deleteDispute as deleteLive,
   freshAgents,
+  listDisputes as listLive,
+  listDisputeIds,
   loadDispute,
   saveDispute as saveLive,
   type LiveDispute,
   type AgentRole,
-} from "./storage.js";
-import { buildEvidencePool, type EvidencePool } from "./fixtures.js";
-import type { Evidence, EvidenceTier, SignedEvidence } from "./types.js";
+} from "./storage";
+import { buildEvidencePool, type EvidencePool } from "./fixtures";
+import type { Evidence, EvidenceTier, SignedEvidence } from "./types";
 
-export type { AgentRole, LiveDispute as DisputeState } from "./storage.js";
+export type { AgentRole, LiveDispute as DisputeState } from "./storage";
 
 function randId(prefix: string): string {
   const bytes = new Uint8Array(12);
@@ -290,3 +293,81 @@ export async function dumpDispute(dispute_id: string) {
 }
 
 export const saveDispute = saveLive;
+export const deleteDispute = deleteLive;
+export { listDisputeIds };
+
+/** Open a dispute that's fully Claude-driven on both sides. Used by the
+ *  dashboard demo seeder so an observer can watch a complete negotiation
+ *  unfold without acting as either party. */
+export async function openDemoDispute(args: {
+  scenario_id: string;
+  max_rounds?: number;
+}): Promise<{ dispute_id: string; scenario: Scenario; created_at: string }> {
+  const scenario = getScenario(args.scenario_id);
+  const { agents, agent_keys } = freshAgents();
+  const created_at = new Date().toISOString();
+  const evidence = buildEvidencePool(agents, scenario, created_at);
+  const dispute_id = randId("dsp");
+  const live: LiveDispute = {
+    dispute_id,
+    claim: null,
+    scenario_id: scenario.id,
+    signed_evidence: evidence.signed,
+    scenario,
+    agents,
+    evidence,
+    history: [],
+    controllers: { aria: "claude", atlas: "claude" },
+    role_tokens: { aria: randId("tok"), atlas: randId("tok") },
+    claimed: { aria: false, atlas: false },
+    turn: "aria",
+    current_round: 1,
+    max_rounds: args.max_rounds ?? 5,
+    pending_feedback: [],
+    finalized: null,
+    ruling: null,
+    created_at,
+    agent_keys,
+  };
+  await saveLive(live);
+  return { dispute_id, scenario, created_at };
+}
+
+export type DisputeSummary = {
+  dispute_id: string;
+  scenario_id: string | null;
+  claim: string | null;
+  created_at: string;
+  current_round: number;
+  max_rounds: number;
+  turn: AgentRole;
+  history_count: number;
+  evidence_count: number;
+  finalized: boolean;
+  outcome_kind: "converged" | "ruling" | "deadline" | null;
+  controllers: Record<AgentRole, "external" | "claude">;
+  agents: { aria: string; atlas: string };
+};
+
+/** List every dispute in storage as a compact summary suitable for the
+ *  dashboard sidebar. Sorted newest-first by `created_at`. */
+export async function listDisputeSummaries(): Promise<DisputeSummary[]> {
+  const all = await listLive();
+  const summaries: DisputeSummary[] = all.map((s) => ({
+    dispute_id: s.dispute_id,
+    scenario_id: s.scenario_id,
+    claim: s.claim,
+    created_at: s.created_at,
+    current_round: s.current_round,
+    max_rounds: s.max_rounds,
+    turn: s.turn,
+    history_count: s.history.length,
+    evidence_count: s.evidence.signed.length,
+    finalized: !!s.finalized,
+    outcome_kind: s.finalized?.bundle.outcome.kind ?? null,
+    controllers: s.controllers,
+    agents: { aria: s.agents.aria.did, atlas: s.agents.atlas.did },
+  }));
+  summaries.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return summaries;
+}

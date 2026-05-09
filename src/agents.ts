@@ -1,5 +1,5 @@
-import { generateKeypair, type Keypair } from "./crypto.js";
-import { deriveDid } from "./did.js";
+import { generateKeypair, type Keypair } from "./crypto";
+import { deriveDid } from "./did";
 
 export type AgentRole = "aria" | "atlas" | "tribunal";
 

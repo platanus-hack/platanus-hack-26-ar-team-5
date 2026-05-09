@@ -3,23 +3,23 @@
  * (memory-by-default, Redis-when-configured) so multi-request flows on
  * Vercel cold-start instances actually work.
  */
-import { signDoc, docHash, verifySignedDoc } from "./sign.js";
-import { hash as hashOf, canonicalize } from "./canonical.js";
-import { makeClaudeDriver } from "./claude_driver.js";
-import { deliberate } from "./jury.js";
+import { signDoc, docHash, verifySignedDoc } from "./sign";
+import { hash as hashOf, canonicalize } from "./canonical";
+import { makeClaudeDriver } from "./claude_driver";
+import { deliberate } from "./jury";
 import {
   type DisputeState,
   type AgentRole,
   getDispute,
   saveDispute,
-} from "./dispute_store.js";
-import type { MessageBody } from "./orchestrator.js";
+} from "./dispute_store";
+import type { MessageBody } from "./orchestrator";
 import {
   resolveMsgRef,
   resolveEvidenceRef,
   listValidMsgRefs,
   listValidEvidenceRefs,
-} from "./refs.js";
+} from "./refs";
 import type {
   AcceptMsg,
   Bundle,
@@ -29,7 +29,7 @@ import type {
   ProposeMsg,
   RevealMsg,
   SignedMessage,
-} from "./types.js";
+} from "./types";
 
 export type StepEvent =
   | { kind: "message.rejected"; role: AgentRole; reason: string; attempt: number }
@@ -345,6 +345,20 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
       events.push(...r.events);
       accepted = r.accepted;
     }
+    // Explicit Escalate from a Claude-driven agent → tribunal, same as the
+    // external path. Keeps the two engines symmetric.
+    if (accepted && state.history[state.history.length - 1]?.type === "Escalate") {
+      const last = state.history[state.history.length - 1] as SignedMessage & {
+        payload: { reason?: string };
+      };
+      const reason = last.payload?.reason ?? "party_escalation";
+      const escalation = await escalateAndFinalize(
+        state,
+        `escalation_by_${role}:${reason}`,
+      );
+      events.push(...escalation);
+      return events;
+    }
     const conv = isConverged(state.history);
     if (conv) {
       events.push({
@@ -396,6 +410,22 @@ export async function submitExternalMessage(args: {
   const r = applyAttempt(state, role, args.body, 1);
   events.push(...r.events);
   if (!r.accepted) {
+    await saveDispute(state);
+    return { events, state: publicState(state) };
+  }
+  // Explicit party-driven Escalate: route to the Tribunal jury immediately.
+  // The Escalate message is already signed into history by applyAttempt;
+  // the bundle's ruling outcome will reference both votes and the full audit
+  // trail including this Escalate as the trigger.
+  if (args.body.type === "Escalate") {
+    const reason =
+      ((args.body.payload as { reason?: unknown }).reason as string | undefined) ??
+      "party_escalation";
+    const escalation = await escalateAndFinalize(
+      state,
+      `escalation_by_${role}:${reason}`,
+    );
+    events.push(...escalation);
     await saveDispute(state);
     return { events, state: publicState(state) };
   }

@@ -160,10 +160,12 @@ Pacta is also exposed as a [Model Context Protocol](https://modelcontextprotocol
 
 | Tool | Purpose |
 |---|---|
-| `open_dispute({ scenario_id, your_role, counterparty_external? })` | Open a dispute as one of the two roles. Returns `dispute_id`, your role token, your `did:key`, the counterparty DID, and the evidence pool with sha256 hashes. By default, Pacta drives the counterparty with Claude after each of your turns; set `counterparty_external: true` if a second MCP client is playing the other role. |
+| `open_dispute({ claim?, scenario_id?, your_role, counterparty_external? })` | Open a dispute. Pass `claim` for schema-less BYO ("Vendor X breached our SLA…"); pass `scenario_id` to load a bundled template. Returns `dispute_id`, your role token, your `did:key`, the counterparty DID, and the (initially empty for schema-less) evidence pool. With `counterparty_external: true`, the OTHER side must also be a real external agent; with `false`, Pacta drives them with Claude (template mode only). |
 | `join_dispute({ dispute_id, role })` | Claim the second external role on an existing dispute. First-come-first-served per role. Returns your token + the dispute info — no out-of-band token sharing required. |
-| `submit_message({ dispute_id, role_token, message })` | Submit a `Propose` / `Critique` / `CounterPropose` / `Accept` / `Reveal` / `Escalate` for your role. Pacta validates against the protocol (compromise bound, reveal monotonicity, evidence-ref existence, Accept-target validity), signs with the role's keypair, then drives any consecutive Claude turns before yielding back. |
-| `get_dispute({ dispute_id })` | Poll the public state — turn pointer, round, full signed history, pending rejection feedback, and the finalized bundle once converged or ruled. |
+| `submit_evidence({ dispute_id, role_token, evidence })` | Append signed evidence to the dispute. `evidence` = `{ tier, title, body }` with tier S/A/B/C. Pacta signs with your role's keypair so the audit trail records who submitted it. Returns the sha256 hash you'll cite in subsequent `submit_message`. |
+| `submit_message({ dispute_id, role_token, message })` | Submit a `Propose` / `Critique` / `CounterPropose` / `Accept` / `Reveal` / `Escalate`. Pacta validates against the protocol (compromise bound, reveal monotonicity, evidence-ref existence, Accept-target validity), signs with the role's keypair, then drives any consecutive Claude turns before yielding back (template mode only). |
+| `wait_for_turn({ dispute_id, role_token, timeout_ms? })` | Block server-side until it's your turn or the dispute finalizes. Removes the busy-poll pattern that would otherwise stop an agent between turns. Default 50s (under Vercel's 60s function limit); call again on timeout. |
+| `get_dispute({ dispute_id })` | Read the public state — turn pointer, round, full signed history, evidence pool, pending rejection feedback, and the finalized bundle once converged or ruled. |
 
 ### Pacta as the table — two external agents from two organizations
 

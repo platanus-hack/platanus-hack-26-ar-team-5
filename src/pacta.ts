@@ -1,18 +1,18 @@
-import { hash as hashOf } from "./canonical.js";
-import { bootAgents } from "./agents.js";
-import { buildEvidencePool } from "./fixtures.js";
+import { hash as hashOf } from "./canonical";
+import { bootAgents } from "./agents";
+import { buildEvidencePool } from "./fixtures";
 import {
   runNegotiation,
   type LLMDriver,
   type OrchestratorConfig,
   type OrchestratorEvent,
-} from "./orchestrator.js";
-import { makeClaudeDriver } from "./claude_driver.js";
-import { makeMockDriver } from "./mock_driver.js";
-import { deliberate } from "./jury.js";
-import type { Bundle, SignedRuling, SignedVote } from "./types.js";
-import { docHash } from "./sign.js";
-import { getScenario, listScenarios, type Scenario } from "./scenarios/index.js";
+} from "./orchestrator";
+import { makeClaudeDriver } from "./claude_driver";
+import { makeMockDriver } from "./mock_driver";
+import { deliberate } from "./jury";
+import type { Bundle, SignedRuling, SignedVote } from "./types";
+import { docHash } from "./sign";
+import { getScenario, listScenarios, type Scenario } from "./scenarios/index";
 
 export type RunOptions = {
   /** Scenario id (e.g. "ai-overrun", "oncology"). Defaults to ai-overrun. */

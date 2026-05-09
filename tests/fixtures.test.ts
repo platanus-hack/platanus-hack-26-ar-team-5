@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bootAgents } from "../src/agents.js";
-import { buildEvidencePool } from "../src/fixtures.js";
-import { verifySignedDoc, docHash } from "../src/sign.js";
-import { aiOverrun } from "../src/scenarios/ai-overrun.js";
-import { oncology } from "../src/scenarios/oncology.js";
-import { SCENARIOS } from "../src/scenarios/index.js";
+import { bootAgents } from "../src/agents";
+import { buildEvidencePool } from "../src/fixtures";
+import { verifySignedDoc, docHash } from "../src/sign";
+import { aiOverrun } from "../src/scenarios/ai-overrun";
+import { oncology } from "../src/scenarios/oncology";
+import { SCENARIOS } from "../src/scenarios/index";
 
 describe("fixtures (mocked)", () => {
   it("boots Aria, Atlas, Tribunal with valid did:key DIDs", () => {

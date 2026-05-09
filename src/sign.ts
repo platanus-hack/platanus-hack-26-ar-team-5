@@ -1,7 +1,7 @@
-import { canonicalBytes, hash } from "./canonical.js";
-import { sign, verify, bytesToHexStr, hexStrToBytes, type Keypair } from "./crypto.js";
-import { resolvePubKey } from "./did.js";
-import type { Proof, SignedDoc } from "./types.js";
+import { canonicalBytes, hash } from "./canonical";
+import { sign, verify, bytesToHexStr, hexStrToBytes, type Keypair } from "./crypto";
+import { resolvePubKey } from "./did";
+import type { Proof, SignedDoc } from "./types";
 
 /** Build a Proof object: sign canonical bytes of `doc` (without proof) using `keypair`. */
 export function makeProof<T extends object>(

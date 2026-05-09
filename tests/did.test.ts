@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveDid, resolvePubKey } from "../src/did.js";
-import { generateKeypair } from "../src/crypto.js";
+import { deriveDid, resolvePubKey } from "../src/did";
+import { generateKeypair } from "../src/crypto";
 
 describe("did (mocked)", () => {
   it("derives a did:key string for an Ed25519 pubkey", () => {

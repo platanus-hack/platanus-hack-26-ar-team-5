@@ -1,4 +1,4 @@
-import { hexStrToBytes } from "./crypto.js";
+import { hexStrToBytes } from "./crypto";
 
 // did:key method for Ed25519 — multicodec prefix 0xed01 + raw 32-byte pubkey,
 // then base58btc encoded with multibase prefix 'z'.

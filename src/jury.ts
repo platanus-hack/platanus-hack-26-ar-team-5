@@ -1,8 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient, MODELS } from "./anthropic.js";
-import { signDoc, docHash } from "./sign.js";
-import type { AgentBook } from "./agents.js";
-import type { EvidencePool } from "./fixtures.js";
+import { getClient, MODELS } from "./anthropic";
+import { signDoc, docHash } from "./sign";
+import type { AgentBook } from "./agents";
+import type { EvidencePool } from "./fixtures";
 import type {
   DealState,
   Ruling,
@@ -10,7 +10,7 @@ import type {
   SignedRuling,
   SignedVote,
   Vote,
-} from "./types.js";
+} from "./types";
 
 type JurorPersona = {
   name: "Aequitas" | "Utilis" | "Velox";

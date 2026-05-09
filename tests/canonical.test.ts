@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalize, canonicalBytes, hash } from "../src/canonical.js";
+import { canonicalize, canonicalBytes, hash } from "../src/canonical";
 
 describe("canonical (mocked)", () => {
   it("orders object keys lexicographically", () => {

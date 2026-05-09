@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 import { readFileSync } from "node:fs";
 import pc from "picocolors";
-import { verifySignedDoc, docHash } from "../src/sign.js";
-import { hash as hashOf } from "../src/canonical.js";
-import type { Bundle, SignedDoc } from "../src/types.js";
+import { verifySignedDoc, docHash } from "../src/sign";
+import { hash as hashOf } from "../src/canonical";
+import type { Bundle, SignedDoc } from "../src/types";
 
 function shortHash(h: string): string {
   return h.length > 18 ? `${h.slice(0, 14)}…${h.slice(-2)}` : h;

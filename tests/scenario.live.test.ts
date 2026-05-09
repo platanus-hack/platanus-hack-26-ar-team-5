@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { writeFileSync, mkdirSync } from "node:fs";
-import { docHash, verifySignedDoc } from "../src/sign.js";
-import { hash as hashOf } from "../src/canonical.js";
-import { runPacta } from "../src/pacta.js";
-import { loadEnv } from "../src/env.js";
+import { docHash, verifySignedDoc } from "../src/sign";
+import { hash as hashOf } from "../src/canonical";
+import { runPacta } from "../src/pacta";
+import { loadEnv } from "../src/env";
 
 loadEnv();
 const HAS_KEY = !!process.env.ANTHROPIC_API_KEY;

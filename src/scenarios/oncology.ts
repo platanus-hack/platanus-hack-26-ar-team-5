@@ -1,5 +1,5 @@
-import { docHash } from "../sign.js";
-import type { Scenario, ScenarioMockStep } from "./types.js";
+import { docHash } from "../sign";
+import type { Scenario, ScenarioMockStep } from "./types";
 
 // In oncology, "credit_usd" is overloaded as the *coverage envelope* for the
 // treatment plan: 0 = no upgrade beyond the insurer's default, full = the

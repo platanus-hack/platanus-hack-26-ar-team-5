@@ -5,9 +5,9 @@
  * the bundle root_hash matches the canonical recomputation.
  */
 import { describe, expect, it } from "vitest";
-import { hash as hashOf } from "../src/canonical.js";
-import { docHash, verifySignedDoc } from "../src/sign.js";
-import { runPacta, listScenarios } from "../src/pacta.js";
+import { hash as hashOf } from "../src/canonical";
+import { docHash, verifySignedDoc } from "../src/sign";
+import { runPacta, listScenarios } from "../src/pacta";
 
 describe("scenarios (mocked smoke)", () => {
   for (const sc of listScenarios()) {

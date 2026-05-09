@@ -3,8 +3,8 @@
  * Walks through a scenario's `mock_script` step by step.
  */
 
-import type { LLMDriver, MessageBody } from "./orchestrator.js";
-import type { Scenario, ScenarioMockStep } from "./scenarios/types.js";
+import type { LLMDriver, MessageBody } from "./orchestrator";
+import type { Scenario, ScenarioMockStep } from "./scenarios/types";
 
 export type MockDriverOpts = {
   scenario: Scenario;

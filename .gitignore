@@ -32,3 +32,15 @@ tmp/
 .vercel/
 
 .vercel
+
+# Next.js / front
+next-env.d.ts
+.tsbuildinfo
+*.tsbuildinfo
+.tmp/
+
+# Tool artifacts (skills, playwright MCP runs)
+.agents/
+.playwright-mcp/
+skills-lock.json
+

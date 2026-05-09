@@ -1,14 +1,16 @@
-import type { Scenario, ScenarioId } from "./types.js";
-import { aiOverrun } from "./ai-overrun.js";
-import { oncology } from "./oncology.js";
-import { cveDisclosure } from "./cve-disclosure.js";
-import { creativeBrief } from "./creative-brief.js";
+import type { Scenario, ScenarioId } from "./types";
+import { aiOverrun } from "./ai-overrun";
+import { oncology } from "./oncology";
+import { cveDisclosure } from "./cve-disclosure";
+import { creativeBrief } from "./creative-brief";
+import { postMortem } from "./post-mortem";
 
 export const SCENARIOS: Record<ScenarioId, Scenario> = {
   [aiOverrun.id]: aiOverrun,
   [oncology.id]: oncology,
   [cveDisclosure.id]: cveDisclosure,
   [creativeBrief.id]: creativeBrief,
+  [postMortem.id]: postMortem,
 };
 
 export const DEFAULT_SCENARIO_ID: ScenarioId = aiOverrun.id;
@@ -32,4 +34,4 @@ export function listScenarios(): Array<{ id: string; name: string; description: 
   }));
 }
 
-export type { Scenario } from "./types.js";
+export type { Scenario } from "./types";

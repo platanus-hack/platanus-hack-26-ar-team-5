@@ -46,3 +46,8 @@ tsconfig.tsbuildinfo
 .playwright-mcp/
 dashboard-*.png
 page-*.png
+# Public assets that legitimately match the patterns above must be re-included.
+!public/dashboard-preview.png
+
+# Local archives
+pacta.zip

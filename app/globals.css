@@ -167,3 +167,44 @@ body {
   background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 14px 14px;
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Landing-only type tokens (Inter). Three sizes, used by app/page.tsx.
+ * ────────────────────────────────────────────────────────────────────── */
+.t-display {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(40px, 7vw, 72px);
+  font-weight: 300;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+.t-body {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 300;
+  line-height: 16px;
+}
+.t-label {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+/* Hero entrance — replaces motion/react fade-ins on the landing. */
+@keyframes hero-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hero-fade { animation: hero-fade 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.hero-d-0 { animation-delay: 0s; }
+.hero-d-1 { animation-delay: 0.05s; }
+.hero-d-2 { animation-delay: 0.2s; }
+.hero-d-3 { animation-delay: 0.3s; }
+
+/* shadcn/ui semantic tokens (used by components/ui/code-block.tsx). */
+:root {
+  --color-card: var(--color-graphite);
+  --color-card-foreground: var(--color-polar-white);
+  --color-border: var(--color-line);
+}

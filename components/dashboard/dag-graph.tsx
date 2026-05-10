@@ -1,6 +1,13 @@
 "use client";
 
-import type { AgentRole, DisputeDump, DumpMessage } from "./types";
+import type {
+  AgentRole,
+  DisputeDump,
+  DumpMessage,
+  DumpSignedRuling,
+  DumpSignedVote,
+  RulingOutcome,
+} from "./types";
 import { shortHash } from "./format";
 
 type Props = {
@@ -19,45 +26,87 @@ const TYPE_INFO: Record<
   Escalate: { label: "Escalate", color: "#FF7A59", icon: "↗" },
 };
 
-type LaidNode = {
-  id: string;
-  hash: string;
-  role: AgentRole;
-  type: DumpMessage["type"];
-  round: number;
-  ref: string;
-  cx: number;
-  cy: number;
-  parentHashes: string[];
+const VOTE_COLOR_BY_OUTCOME: Record<RulingOutcome, string> = {
+  claimant_prevails: "#A4F4FD",
+  claimant_partial: "#C084FC",
+  respondent_prevails: "#7AA2F7",
+  abstain: "#E25B5B",
 };
+
+const VOTE_COLOR_FALLBACK = "#C084FC";
+const RULING_COLOR = "#C084FC";
+
+type Lane = "aria" | "atlas" | "tribunal";
+
+type LaidNode =
+  | {
+      kind: "msg";
+      id: string;
+      hash: string;
+      lane: AgentRole;
+      type: DumpMessage["type"];
+      round: number;
+      ref: string;
+      cx: number;
+      cy: number;
+      parentHashes: string[];
+    }
+  | {
+      kind: "vote";
+      id: string;
+      lane: "tribunal";
+      juror: string;
+      model: string;
+      outcome: RulingOutcome;
+      confidence: number;
+      cx: number;
+      cy: number;
+    }
+  | {
+      kind: "ruling";
+      id: string;
+      lane: "tribunal";
+      outcome: RulingOutcome;
+      confidence: number;
+      cx: number;
+      cy: number;
+    };
 
 type LaidEdge = {
   from: { x: number; y: number };
   to: { x: number; y: number };
-  finalEdge?: boolean;
+  tone?: "default" | "tribunal" | "final";
 };
 
 const NODE_R = 22;
 const HORIZ_PAD = 116;
-const LANE_GAP = 130;
+const LANE_GAP = 110;
 const COL_W = 100;
 const TOP_PAD = 60;
 const LABEL_OFFSET = NODE_R + 24;
 const LANE_LABEL_X = 16;
 const LANE_DIVIDER_X = HORIZ_PAD - 30;
 
+const LANE_Y: Record<Lane, number> = {
+  aria: TOP_PAD,
+  atlas: TOP_PAD + LANE_GAP,
+  tribunal: TOP_PAD + LANE_GAP * 2,
+};
+
 export function DagGraph({ dispute }: Props) {
   const ariaDid = dispute.agents.aria;
   const items = dispute.history;
 
-  const nodes: LaidNode[] = items.map((m, i) => {
-    const role: AgentRole = m.from_agent === ariaDid ? "aria" : "atlas";
+  // Bilateral message nodes
+  const msgNodes: LaidNode[] = items.map((m, i) => {
+    const lane: AgentRole = m.from_agent === ariaDid ? "aria" : "atlas";
     const cx = HORIZ_PAD + i * COL_W;
-    const cy = role === "aria" ? TOP_PAD : TOP_PAD + LANE_GAP;
+    const cy = LANE_Y[lane];
     return {
+      kind: "msg",
       id: m.msg_id,
       hash: m.hash,
-      role,
+      lane,
       type: m.type,
       round: m.round,
       ref: m.ref,
@@ -68,13 +117,16 @@ export function DagGraph({ dispute }: Props) {
   });
 
   const byHash = new Map<string, LaidNode>();
-  for (const n of nodes) byHash.set(n.hash, n);
+  for (const n of msgNodes) {
+    if (n.kind === "msg") byHash.set(n.hash, n);
+  }
 
   const edges: LaidEdge[] = [];
-  for (const n of nodes) {
+  for (const n of msgNodes) {
+    if (n.kind !== "msg") continue;
     for (const p of n.parentHashes) {
       const parent = byHash.get(p);
-      if (!parent) continue;
+      if (!parent || parent.kind !== "msg") continue;
       edges.push({
         from: { x: parent.cx, y: parent.cy },
         to: { x: n.cx, y: n.cy },
@@ -82,21 +134,96 @@ export function DagGraph({ dispute }: Props) {
     }
   }
 
-  const lastX =
-    nodes.length > 0 ? nodes[nodes.length - 1]!.cx + COL_W + 12 : HORIZ_PAD;
-  const rootCenterY = TOP_PAD + LANE_GAP / 2;
-  const finalized = !!dispute.finalized;
-  if (finalized && nodes.length > 0) {
-    const last = nodes[nodes.length - 1]!;
-    edges.push({
-      from: { x: last.cx, y: last.cy },
-      to: { x: lastX, y: rootCenterY },
-      finalEdge: true,
+  const ruling = dispute.ruling ?? extractRulingFromBundle(dispute.finalized);
+  const showTribunal = !!ruling && ruling.votes.length > 0;
+
+  const tribunalNodes: LaidNode[] = [];
+  if (showTribunal && ruling) {
+    const baseCol = msgNodes.length;
+    ruling.votes.forEach((v, i) => {
+      tribunalNodes.push({
+        kind: "vote",
+        id: `vote-${v.juror_did}-${i}`,
+        lane: "tribunal",
+        juror: v.juror,
+        model: v.juror_model,
+        outcome: v.outcome,
+        confidence: v.confidence,
+        cx: HORIZ_PAD + (baseCol + i) * COL_W,
+        cy: LANE_Y.tribunal,
+      });
     });
+    // Ruling node sits one column past the last vote
+    const rulingCx = HORIZ_PAD + (baseCol + ruling.votes.length) * COL_W;
+    tribunalNodes.push({
+      kind: "ruling",
+      id: "ruling-node",
+      lane: "tribunal",
+      outcome: ruling.ruling.outcome,
+      confidence: ruling.ruling.confidence,
+      cx: rulingCx,
+      cy: LANE_Y.tribunal,
+    });
+
+    // Edges: last bilateral message → each vote
+    if (msgNodes.length > 0) {
+      const last = msgNodes[msgNodes.length - 1]!;
+      for (const v of tribunalNodes) {
+        if (v.kind !== "vote") continue;
+        edges.push({
+          from: { x: last.cx, y: last.cy },
+          to: { x: v.cx, y: v.cy },
+          tone: "tribunal",
+        });
+      }
+    }
+    // Edges: each vote → ruling
+    const rulingNode = tribunalNodes.find((n) => n.kind === "ruling")!;
+    for (const v of tribunalNodes) {
+      if (v.kind !== "vote") continue;
+      edges.push({
+        from: { x: v.cx, y: v.cy },
+        to: { x: rulingNode.cx, y: rulingNode.cy },
+        tone: "tribunal",
+      });
+    }
   }
 
-  const width = Math.max(540, lastX + HORIZ_PAD);
-  const height = TOP_PAD + LANE_GAP + LABEL_OFFSET + 28;
+  // Compute root position and final edge
+  const finalized = !!dispute.finalized;
+  const allNodes: LaidNode[] = [...msgNodes, ...tribunalNodes];
+  const rightmostX =
+    allNodes.length > 0
+      ? Math.max(...allNodes.map((n) => n.cx))
+      : HORIZ_PAD;
+  const rootX = rightmostX + COL_W + 12;
+  const rootY = showTribunal
+    ? LANE_Y.tribunal
+    : TOP_PAD + LANE_GAP / 2;
+
+  if (finalized) {
+    if (showTribunal) {
+      const rulingNode = tribunalNodes.find((n) => n.kind === "ruling");
+      if (rulingNode) {
+        edges.push({
+          from: { x: rulingNode.cx, y: rulingNode.cy },
+          to: { x: rootX, y: rootY },
+          tone: "final",
+        });
+      }
+    } else if (msgNodes.length > 0) {
+      const last = msgNodes[msgNodes.length - 1]!;
+      edges.push({
+        from: { x: last.cx, y: last.cy },
+        to: { x: rootX, y: rootY },
+        tone: "final",
+      });
+    }
+  }
+
+  const width = Math.max(540, rootX + HORIZ_PAD);
+  const bottomLane = showTribunal ? LANE_Y.tribunal : LANE_Y.atlas;
+  const height = bottomLane + LABEL_OFFSET + 28;
 
   return (
     <section className="overflow-hidden rounded-lg border border-line/70 bg-graphite/30">
@@ -110,11 +237,13 @@ export function DagGraph({ dispute }: Props) {
           ).map((t) => (
             <Legend key={t} label={TYPE_INFO[t].label} color={TYPE_INFO[t].color} />
           ))}
+          {showTribunal && <Legend label="Vote" color={RULING_COLOR} />}
+          {showTribunal && <Legend label="Ruling" color={RULING_COLOR} ringed />}
           {finalized && <Legend label="Root" color="#E7C59A" outline />}
         </div>
       </div>
 
-      {nodes.length === 0 ? (
+      {msgNodes.length === 0 ? (
         <div className="px-4 py-10 text-center t-body text-dim">
           The graph builds as the first signed move lands.
         </div>
@@ -125,7 +254,7 @@ export function DagGraph({ dispute }: Props) {
             width={width}
             height={height}
             role="img"
-            aria-label="Signed audit DAG of every protocol move"
+            aria-label="Signed audit DAG of every protocol move plus tribunal"
             className="block"
             style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}
           >
@@ -143,6 +272,16 @@ export function DagGraph({ dispute }: Props) {
                   <stop offset="100%" stopColor={v.color} stopOpacity="0" />
                 </radialGradient>
               ))}
+              <radialGradient id="aurora-vote" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor={RULING_COLOR} stopOpacity="0.55" />
+                <stop offset="60%" stopColor={RULING_COLOR} stopOpacity="0.12" />
+                <stop offset="100%" stopColor={RULING_COLOR} stopOpacity="0" />
+              </radialGradient>
+              <radialGradient id="aurora-ruling" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor={RULING_COLOR} stopOpacity="0.7" />
+                <stop offset="60%" stopColor={RULING_COLOR} stopOpacity="0.18" />
+                <stop offset="100%" stopColor={RULING_COLOR} stopOpacity="0" />
+              </radialGradient>
               <radialGradient id="aurora-root" cx="50%" cy="50%" r="50%">
                 <stop offset="0%" stopColor="#E7C59A" stopOpacity="0.7" />
                 <stop offset="60%" stopColor="#E7C59A" stopOpacity="0.18" />
@@ -150,77 +289,31 @@ export function DagGraph({ dispute }: Props) {
               </radialGradient>
             </defs>
 
-            {/* Lane labels (own column, never overlap nodes) */}
-            <g>
-              <text
-                x={LANE_LABEL_X}
-                y={TOP_PAD - 18}
-                fill="var(--color-dim)"
-                fontSize="9"
-                fontWeight="500"
-                letterSpacing="0.18em"
-              >
-                CLAIMANT
-              </text>
-              <text
-                x={LANE_LABEL_X}
-                y={TOP_PAD + 4}
-                fill="var(--color-aria)"
-                fontSize="14"
-                fontWeight="600"
-              >
-                Aria
-              </text>
-            </g>
-            <g>
-              <text
-                x={LANE_LABEL_X}
-                y={TOP_PAD + LANE_GAP - 18}
-                fill="var(--color-dim)"
-                fontSize="9"
-                fontWeight="500"
-                letterSpacing="0.18em"
-              >
-                RESPONDENT
-              </text>
-              <text
-                x={LANE_LABEL_X}
-                y={TOP_PAD + LANE_GAP + 4}
-                fill="var(--color-atlas)"
-                fontSize="14"
-                fontWeight="600"
-              >
-                Atlas
-              </text>
-            </g>
+            {/* Lane labels */}
+            <LaneLabel y={LANE_Y.aria} kicker="CLAIMANT" name="Aria" color="var(--color-aria)" />
+            <LaneLabel y={LANE_Y.atlas} kicker="RESPONDENT" name="Atlas" color="var(--color-atlas)" />
+            {showTribunal && (
+              <LaneLabel
+                y={LANE_Y.tribunal}
+                kicker="ARBITER"
+                name="Tribunal"
+                color={RULING_COLOR}
+              />
+            )}
+
             <line
               x1={LANE_DIVIDER_X}
               x2={LANE_DIVIDER_X}
               y1={TOP_PAD - 30}
-              y2={TOP_PAD + LANE_GAP + 18}
+              y2={bottomLane + 18}
               stroke="var(--color-line-soft)"
               strokeWidth="1"
             />
 
             {/* Lane guides (dashed) */}
-            <line
-              x1={HORIZ_PAD - 14}
-              x2={width - HORIZ_PAD + 14}
-              y1={TOP_PAD}
-              y2={TOP_PAD}
-              stroke="var(--color-line-soft)"
-              strokeWidth="1"
-              strokeDasharray="2 5"
-            />
-            <line
-              x1={HORIZ_PAD - 14}
-              x2={width - HORIZ_PAD + 14}
-              y1={TOP_PAD + LANE_GAP}
-              y2={TOP_PAD + LANE_GAP}
-              stroke="var(--color-line-soft)"
-              strokeWidth="1"
-              strokeDasharray="2 5"
-            />
+            <LaneGuide y={LANE_Y.aria} width={width} />
+            <LaneGuide y={LANE_Y.atlas} width={width} />
+            {showTribunal && <LaneGuide y={LANE_Y.tribunal} width={width} />}
 
             {/* Edges (drawn first, behind nodes) */}
             {edges.map((e, i) => (
@@ -228,19 +321,33 @@ export function DagGraph({ dispute }: Props) {
                 key={i}
                 d={curvedPath(e.from, e.to)}
                 fill="none"
-                stroke={e.finalEdge ? "#E7C59A" : "var(--color-line)"}
-                strokeWidth={e.finalEdge ? "1.6" : "1.2"}
-                strokeOpacity={e.finalEdge ? 0.9 : 0.7}
+                stroke={
+                  e.tone === "final"
+                    ? "#E7C59A"
+                    : e.tone === "tribunal"
+                      ? RULING_COLOR
+                      : "var(--color-line)"
+                }
+                strokeWidth={e.tone === "final" ? "1.6" : "1.2"}
+                strokeOpacity={
+                  e.tone === "final" ? 0.9 : e.tone === "tribunal" ? 0.55 : 0.7
+                }
+                strokeDasharray={e.tone === "tribunal" ? "3 4" : undefined}
               />
             ))}
 
             {/* Nodes */}
-            {nodes.map((n) => (
-              <Node key={n.id} n={n} />
-            ))}
+            {msgNodes.map((n) =>
+              n.kind === "msg" ? <MsgNode key={n.id} n={n} /> : null,
+            )}
+            {tribunalNodes.map((n) => {
+              if (n.kind === "vote") return <VoteNode key={n.id} n={n} />;
+              if (n.kind === "ruling") return <RulingNode key={n.id} n={n} />;
+              return null;
+            })}
 
-            {finalized && nodes.length > 0 && (
-              <RootNode cx={lastX} cy={rootCenterY} />
+            {finalized && msgNodes.length > 0 && (
+              <RootNode cx={rootX} cy={rootY} />
             )}
           </svg>
         </div>
@@ -249,26 +356,78 @@ export function DagGraph({ dispute }: Props) {
   );
 }
 
-function Node({ n }: { n: LaidNode }) {
+function extractRulingFromBundle(
+  bundle: DisputeDump["finalized"],
+): { votes: DumpSignedVote[]; ruling: DumpSignedRuling } | null {
+  if (!bundle) return null;
+  if (bundle.outcome.kind !== "ruling") return null;
+  return { votes: bundle.outcome.votes, ruling: bundle.outcome.ruling };
+}
+
+function LaneLabel({
+  y,
+  kicker,
+  name,
+  color,
+}: {
+  y: number;
+  kicker: string;
+  name: string;
+  color: string;
+}) {
+  return (
+    <g>
+      <text
+        x={LANE_LABEL_X}
+        y={y - 18}
+        fill="var(--color-dim)"
+        fontSize="9"
+        fontWeight="500"
+        letterSpacing="0.18em"
+      >
+        {kicker}
+      </text>
+      <text
+        x={LANE_LABEL_X}
+        y={y + 4}
+        fill={color}
+        fontSize="14"
+        fontWeight="600"
+      >
+        {name}
+      </text>
+    </g>
+  );
+}
+
+function LaneGuide({ y, width }: { y: number; width: number }) {
+  return (
+    <line
+      x1={HORIZ_PAD - 14}
+      x2={width - HORIZ_PAD + 14}
+      y1={y}
+      y2={y}
+      stroke="var(--color-line-soft)"
+      strokeWidth="1"
+      strokeDasharray="2 5"
+    />
+  );
+}
+
+function MsgNode({ n }: { n: Extract<LaidNode, { kind: "msg" }> }) {
   const info = TYPE_INFO[n.type];
   return (
     <g>
       <title>
         {info.label} · round {n.round} · {n.ref} · #{shortHash(n.hash, 10)}
       </title>
-
-      {/* Aurora glow (per type) */}
       <circle
         cx={n.cx}
         cy={n.cy}
         r={NODE_R + 22}
         fill={`url(#aurora-${n.type})`}
       />
-
-      {/* Solid node */}
       <circle cx={n.cx} cy={n.cy} r={NODE_R} fill={info.color} />
-
-      {/* Inner icon */}
       <text
         x={n.cx}
         y={n.cy + 5}
@@ -279,8 +438,6 @@ function Node({ n }: { n: LaidNode }) {
       >
         {info.icon}
       </text>
-
-      {/* Label below node */}
       <text
         x={n.cx}
         y={n.cy + LABEL_OFFSET}
@@ -291,8 +448,6 @@ function Node({ n }: { n: LaidNode }) {
       >
         {info.label}
       </text>
-
-      {/* Sub-label: round + ref */}
       <text
         x={n.cx}
         y={n.cy + LABEL_OFFSET + 14}
@@ -301,6 +456,111 @@ function Node({ n }: { n: LaidNode }) {
         fill="var(--color-dim)"
       >
         r{n.round} · {n.ref}
+      </text>
+    </g>
+  );
+}
+
+const VOTE_OUTCOME_LABEL: Record<RulingOutcome, string> = {
+  claimant_prevails: "claimant",
+  claimant_partial: "partial",
+  respondent_prevails: "respondent",
+  abstain: "abstain",
+};
+
+function VoteNode({ n }: { n: Extract<LaidNode, { kind: "vote" }> }) {
+  const fill = VOTE_COLOR_BY_OUTCOME[n.outcome] ?? VOTE_COLOR_FALLBACK;
+  const confPct = `${(n.confidence * 100).toFixed(0)}%`;
+  return (
+    <g>
+      <title>
+        {n.juror} ({n.model}) — vote: {n.outcome}, confidence {confPct}
+      </title>
+      <circle cx={n.cx} cy={n.cy} r={NODE_R + 22} fill="url(#aurora-vote)" />
+      <circle cx={n.cx} cy={n.cy} r={NODE_R} fill={fill} />
+      <text
+        x={n.cx}
+        y={n.cy + 5}
+        textAnchor="middle"
+        fontSize="13"
+        fontWeight="700"
+        fill="var(--color-deep-space)"
+      >
+        ⚖
+      </text>
+      <text
+        x={n.cx}
+        y={n.cy + LABEL_OFFSET}
+        textAnchor="middle"
+        fontSize="12"
+        fontWeight="600"
+        fill="var(--color-polar-white)"
+      >
+        {n.juror}
+      </text>
+      <text
+        x={n.cx}
+        y={n.cy + LABEL_OFFSET + 14}
+        textAnchor="middle"
+        fontSize="10"
+        fill="var(--color-dim)"
+      >
+        {VOTE_OUTCOME_LABEL[n.outcome] ?? n.outcome} · {confPct}
+      </text>
+    </g>
+  );
+}
+
+function RulingNode({ n }: { n: Extract<LaidNode, { kind: "ruling" }> }) {
+  const fill = VOTE_COLOR_BY_OUTCOME[n.outcome] ?? RULING_COLOR;
+  const confPct = `${(n.confidence * 100).toFixed(0)}%`;
+  return (
+    <g>
+      <title>
+        Tribunal ruling — {n.outcome} · compound confidence {confPct}
+      </title>
+      <circle
+        cx={n.cx}
+        cy={n.cy}
+        r={NODE_R + 26}
+        fill="url(#aurora-ruling)"
+      />
+      <circle
+        cx={n.cx}
+        cy={n.cy}
+        r={NODE_R + 4}
+        fill={fill}
+        stroke={RULING_COLOR}
+        strokeWidth="1.5"
+      />
+      <text
+        x={n.cx}
+        y={n.cy + 6}
+        textAnchor="middle"
+        fontSize="16"
+        fontWeight="700"
+        fill="var(--color-deep-space)"
+      >
+        §
+      </text>
+      <text
+        x={n.cx}
+        y={n.cy + LABEL_OFFSET + 4}
+        textAnchor="middle"
+        fontSize="12"
+        fontWeight="600"
+        fill={RULING_COLOR}
+      >
+        Ruling
+      </text>
+      <text
+        x={n.cx}
+        y={n.cy + LABEL_OFFSET + 18}
+        textAnchor="middle"
+        fontSize="10"
+        fill="var(--color-dim)"
+      >
+        {VOTE_OUTCOME_LABEL[n.outcome] ?? n.outcome} · {confPct}
       </text>
     </g>
   );
@@ -349,10 +609,12 @@ function Legend({
   label,
   color,
   outline = false,
+  ringed = false,
 }: {
   label: string;
   color: string;
   outline?: boolean;
+  ringed?: boolean;
 }) {
   return (
     <span className="inline-flex items-center gap-1.5 t-body">
@@ -361,7 +623,9 @@ function Legend({
         style={
           outline
             ? { background: "transparent", boxShadow: `inset 0 0 0 1.5px ${color}` }
-            : { background: color }
+            : ringed
+              ? { background: color, boxShadow: `0 0 0 2px ${color}40` }
+              : { background: color }
         }
       />
       {label}

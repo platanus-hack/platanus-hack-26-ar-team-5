@@ -179,10 +179,10 @@ function RuledBanner({
         </div>
       </div>
 
-      {/* Jury votes */}
+      {/* Jury votes — all jurors share the tribunal DID, so key on juror name (Aequitas/Utilis/Velox are unique). */}
       <div className="grid grid-cols-1 gap-px bg-line/40 lg:grid-cols-3">
-        {votes.map((v) => (
-          <JurorCard key={v.juror_did} v={v} />
+        {votes.map((v, i) => (
+          <JurorCard key={`${v.juror}-${i}`} v={v} />
         ))}
       </div>
 

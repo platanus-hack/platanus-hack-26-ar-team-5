@@ -223,10 +223,10 @@ function Explainer() {
     },
     {
       title: "They exchange signed offers",
-      body: "Propose, Counter, Critique, Reveal — every move is Ed25519-signed and cites the prior moves and evidence it leans on.",
+      body: "Propose, Counter, Critique, Reveal. Every move is Ed25519-signed and cites the prior moves and evidence it leans on.",
     },
     {
-      title: "They converge — or escalate",
+      title: "They converge or escalate",
       body: "If both sides Accept the same target the deal is done. If they deadlock, a 3-LLM tribunal arbitrates. Either way the output is a content-addressed bundle anyone can re-verify offline.",
     },
   ];
@@ -234,7 +234,7 @@ function Explainer() {
     <section className="mx-auto max-w-5xl px-6 pb-24">
       <SectionHeader
         eyebrow="How it works"
-        title="Negotiation, evidence, and a verdict — all signed end to end."
+        title="Negotiation, evidence, and a verdict. All signed end to end."
       />
       <ol className="mt-12 grid gap-px overflow-hidden rounded-md border border-white/[0.08] bg-white/[0.06] md:grid-cols-3">
         {steps.map((s, i) => (
@@ -274,7 +274,7 @@ function FlowsSection() {
       </div>
       <p className="t-body mt-6 text-white/40">
         Each circle is an Ed25519-signed primitive. Lines are{" "}
-        <span className="font-mono text-white/65">parent_refs</span> — every
+        <span className="font-mono text-white/65">parent_refs</span>. Every
         node cites the prior moves it depends on. A third party re-verifies the
         whole graph offline with{" "}
         <span className="font-mono text-white/65">pnpm verify</span>.
@@ -311,17 +311,16 @@ function FlowCard({
 function ConvergedDag() {
   return (
     <svg
-      viewBox="0 0 460 230"
-      className="block h-auto w-full min-w-[400px]"
+      viewBox="0 0 540 200"
+      className="block h-auto w-full min-w-[440px]"
       role="img"
       aria-label="Convergence flow: Aria proposes, Atlas counters, both Accept the same target, root hash."
     >
-      {/* lane separators */}
-      {[30, 110, 190].map((y) => (
+      {[30, 100, 170].map((y) => (
         <line
           key={y}
-          x1={120}
-          x2={460}
+          x1={110}
+          x2={540}
           y1={y}
           y2={y}
           stroke="rgba(255,255,255,0.05)"
@@ -329,26 +328,24 @@ function ConvergedDag() {
         />
       ))}
 
-      <FlowLane y={70} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
-      <FlowLane y={150} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
+      <FlowLane y={65} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
+      <FlowLane y={135} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
 
-      {/* edges */}
-      <DagEdge d="M 175 70 C 210 70, 210 150, 245 150" />
-      <DagEdge d="M 265 150 C 290 150, 290 70, 315 70" />
-      <DagEdge d="M 335 70 L 405 70" tone="root" />
-      <DagEdge d="M 265 150 C 320 150, 360 110, 395 80" tone="root" />
+      <DagEdge d="M 175 65 C 215 65, 215 135, 255 135" />
+      <DagEdge d="M 295 135 C 335 135, 335 65, 375 65" />
+      <DagEdge d="M 395 65 L 465 65" tone="root" />
+      <DagEdge d="M 295 135 C 380 135, 430 100, 465 70" tone="root" />
 
-      <DagNode cx={155} cy={70} fill="#A4F4FD" icon="·" label="Propose" caption="m1 · $1,200" />
-      <DagNode cx={245} cy={150} fill="#7AA2F7" icon="↺" label="Counter" caption="m2 · $900" />
-      <DagNode cx={335} cy={70} fill="#E7C59A" icon="✓" label="Accept" caption="m3 · target m2" ringed />
+      <DagNode cx={155} cy={65} fill="#A4F4FD" icon="·" label="Propose" />
+      <DagNode cx={275} cy={135} fill="#7AA2F7" icon="↺" label="Counter" />
+      <DagNode cx={395} cy={65} fill="#E7C59A" icon="✓" label="Accept" ringed />
       <DagNode
-        cx={420}
-        cy={70}
+        cx={485}
+        cy={65}
         fill="transparent"
         outline="#ffffff"
         icon="⚿"
         label="Root"
-        caption="sha256:6f1c…"
       />
     </svg>
   );
@@ -357,16 +354,16 @@ function ConvergedDag() {
 function TribunalDag() {
   return (
     <svg
-      viewBox="0 0 460 280"
-      className="block h-auto w-full min-w-[400px]"
+      viewBox="0 0 600 250"
+      className="block h-auto w-full min-w-[480px]"
       role="img"
       aria-label="Tribunal flow: parties deadlock, three LLM jurors vote, ruling, root hash."
     >
-      {[30, 90, 160, 240].map((y) => (
+      {[30, 80, 145, 220].map((y) => (
         <line
           key={y}
-          x1={120}
-          x2={460}
+          x1={110}
+          x2={600}
           y1={y}
           y2={y}
           stroke="rgba(255,255,255,0.05)"
@@ -374,34 +371,34 @@ function TribunalDag() {
         />
       ))}
 
-      <FlowLane y={60} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
-      <FlowLane y={125} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
-      <FlowLane y={195} eyebrow="Arbiter" name="Tribunal" color="rgba(192,132,252,0.85)" />
+      <FlowLane y={55} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
+      <FlowLane y={120} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
+      <FlowLane y={190} eyebrow="Arbiter" name="Tribunal" color="rgba(192,132,252,0.85)" />
 
-      <DagEdge d="M 165 60 C 195 60, 195 125, 220 125" />
-      <DagEdge d="M 240 125 C 265 125, 265 60, 290 60" />
-      <DagEdge d="M 310 60 C 330 60, 330 195, 355 195" tone="tribunal" />
-      <DagEdge d="M 290 60 C 200 60, 200 195, 195 195" tone="tribunal" />
-      <DagEdge d="M 290 60 C 240 60, 240 195, 275 195" tone="tribunal" />
-      <DagEdge d="M 215 195 L 380 195" tone="tribunal" />
-      <DagEdge d="M 290 195 L 380 195" tone="tribunal" />
-      <DagEdge d="M 380 195 L 425 195" tone="root" />
+      <DagEdge d="M 155 55 C 195 55, 195 120, 235 120" />
+      <DagEdge d="M 255 120 C 295 120, 295 55, 335 55" />
+      <DagEdge d="M 335 55 C 380 55, 380 190, 410 190" tone="tribunal" />
+      <DagEdge d="M 335 55 C 280 55, 280 190, 250 190" tone="tribunal" />
+      <DagEdge d="M 335 55 C 320 55, 320 190, 330 190" tone="tribunal" />
+      <DagEdge d="M 270 190 L 480 190" tone="tribunal" />
+      <DagEdge d="M 350 190 L 480 190" tone="tribunal" />
+      <DagEdge d="M 430 190 L 480 190" tone="tribunal" />
+      <DagEdge d="M 500 190 L 555 190" tone="root" />
 
-      <DagNode cx={145} cy={60} fill="#A4F4FD" icon="·" label="Propose" caption="m1 · $1,800" />
-      <DagNode cx={220} cy={125} fill="#7AA2F7" icon="↺" label="Counter" caption="m2 · $600" />
-      <DagNode cx={290} cy={60} fill="#FF7A59" icon="↗" label="Escalate" caption="m3" />
-      <DagNode cx={195} cy={195} fill="#C084FC" icon="⚖" label="Aequitas" caption="72%" />
-      <DagNode cx={275} cy={195} fill="#C084FC" icon="⚖" label="Utilis" caption="78%" />
-      <DagNode cx={355} cy={195} fill="#C084FC" icon="⚖" label="Velox" caption="82%" />
-      <DagNode cx={395} cy={195} fill="#C084FC" icon="§" label="Ruling" caption="$600 · partial" ringed />
+      <DagNode cx={135} cy={55} fill="#A4F4FD" icon="·" label="Propose" />
+      <DagNode cx={235} cy={120} fill="#7AA2F7" icon="↺" label="Counter" />
+      <DagNode cx={335} cy={55} fill="#FF7A59" icon="↗" label="Escalate" />
+      <DagNode cx={250} cy={190} fill="#C084FC" icon="⚖" label="Aequitas" />
+      <DagNode cx={340} cy={190} fill="#C084FC" icon="⚖" label="Utilis" />
+      <DagNode cx={430} cy={190} fill="#C084FC" icon="⚖" label="Velox" />
+      <DagNode cx={500} cy={190} fill="#C084FC" icon="§" label="Ruling" ringed />
       <DagNode
-        cx={440}
-        cy={195}
+        cx={570}
+        cy={190}
         fill="transparent"
         outline="#ffffff"
         icon="⚿"
         label="Root"
-        caption="sha256:84…"
       />
     </svg>
   );

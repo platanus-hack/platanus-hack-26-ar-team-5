@@ -20,9 +20,14 @@
  *   5. Record one usage_event with status + dispute_id (if known).
  */
 import type { NextApiRequest, NextApiResponse } from "next";
+import type { IncomingMessage } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { getSupabaseAdmin } from "./supabase-admin";
-import { getCurrentUser } from "./supabase-server";
+import {
+  getCurrentUser,
+  getCurrentUserFromRequest,
+  type CurrentUser,
+} from "./supabase-server";
 import { checkQuotaOk, recordUsage, runWithAttribution } from "./usage";
 import type { ApiKey, Profile } from "./types";
 
@@ -123,10 +128,12 @@ async function authenticateKey(plaintext: string): Promise<
   };
 }
 
-async function authenticateSession(): Promise<
+async function authenticateSession(
+  loadUser: () => Promise<CurrentUser | null>,
+): Promise<
   { ok: true; ctx: AuthenticatedContext } | { ok: false; err: AuthError } | null
 > {
-  const me = await getCurrentUser();
+  const me = await loadUser();
   if (!me) return null;
 
   const quota = await checkQuotaOk(me.profile);
@@ -143,19 +150,24 @@ async function authenticateSession(): Promise<
   };
 }
 
-type Authenticate = (
-  headerKey: string | null,
-  allowSession: boolean,
-) => Promise<{ ok: true; ctx: AuthenticatedContext } | { ok: false; err: AuthError }>;
+type Authenticate = (args: {
+  headerKey: string | null;
+  allowSession: boolean;
+  loadUser: () => Promise<CurrentUser | null>;
+}) => Promise<{ ok: true; ctx: AuthenticatedContext } | { ok: false; err: AuthError }>;
 
-const authenticate: Authenticate = async (headerKey, allowSession) => {
+const authenticate: Authenticate = async ({
+  headerKey,
+  allowSession,
+  loadUser,
+}) => {
   const plaintext = extractKey(headerKey);
   if (plaintext) {
     return authenticateKey(plaintext);
   }
 
   if (allowSession) {
-    const sessionResult = await authenticateSession();
+    const sessionResult = await authenticateSession(loadUser);
     if (sessionResult && "ok" in sessionResult) return sessionResult;
   }
 
@@ -198,7 +210,11 @@ export function withApiAuthAppRouter<P = unknown>(
     const headerKey =
       req.headers.get("x-pacta-key") ?? req.headers.get("authorization");
 
-    const result = await authenticate(headerKey, allowSession);
+    const result = await authenticate({
+      headerKey,
+      allowSession,
+      loadUser: getCurrentUser,
+    });
     if (!result.ok) {
       return Response.json(result.err.body, { status: result.err.status });
     }
@@ -279,7 +295,11 @@ export function withApiAuthPagesRouter(
       (req.headers["authorization"] as string | undefined) ??
       null;
 
-    const result = await authenticate(headerKey ?? null, allowSession);
+    const result = await authenticate({
+      headerKey: headerKey ?? null,
+      allowSession,
+      loadUser: () => getCurrentUserFromRequest(req as IncomingMessage),
+    });
     if (!result.ok) {
       res.status(result.err.status).json(result.err.body);
       return;

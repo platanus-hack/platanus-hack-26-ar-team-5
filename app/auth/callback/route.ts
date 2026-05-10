@@ -1,24 +1,14 @@
 /**
- * Supabase OAuth callback. Supabase redirects here with `?code=...` after the
- * Google sign-in flow; we exchange it for a session, then promote the
- * profile if its email is on ALLOWED_EMAILS.
+ * Supabase auth callback. Used by PKCE flows (password-reset emails, magic
+ * links). Email/password sign-up and sign-in skip this path — they're handled
+ * directly by the server actions in app/login/actions.ts.
  */
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "../../../lib/auth/supabase-server";
-import { getSupabaseAdmin } from "../../../lib/auth/supabase-admin";
+import { promoteByEnv } from "../../../lib/auth/promote";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function parseAllowedEmails(): Set<string> {
-  const raw = process.env.ALLOWED_EMAILS ?? "";
-  return new Set(
-    raw
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
 
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -46,20 +36,11 @@ export async function GET(req: Request): Promise<Response> {
     return NextResponse.redirect(back);
   }
 
-  // Auto-promote if the user's email is on the env allowlist. The
-  // handle_new_user trigger has already inserted the profile row, so we just
-  // flip `allowed`.
   const { data: userData } = await supabase.auth.getUser();
-  const email = userData.user?.email?.toLowerCase();
+  const email = userData.user?.email;
   const userId = userData.user?.id;
-  if (email && userId && parseAllowedEmails().has(email)) {
-    const { error: promoteErr } = await getSupabaseAdmin()
-      .from("profiles")
-      .update({ allowed: true })
-      .eq("id", userId);
-    if (promoteErr) {
-      console.error("[pacta-auth] allowlist promote failed:", promoteErr.message);
-    }
+  if (email && userId) {
+    await promoteByEnv(userId, email);
   }
 
   return NextResponse.redirect(new URL(next, url.origin));

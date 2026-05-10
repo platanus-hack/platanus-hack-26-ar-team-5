@@ -103,6 +103,7 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
       agents,
       evidence: pool,
       history: result.value.history,
+      scenario,
     });
     for (const v of votes) yield { kind: "jury.vote", vote: v };
     yield { kind: "jury.ruling", ruling };

@@ -3,6 +3,7 @@ import { getClient, MODELS } from "./anthropic";
 import { signDoc, docHash } from "./sign";
 import type { AgentBook } from "./agents";
 import type { EvidencePool } from "./fixtures";
+import type { Scenario } from "./scenarios/index";
 import type {
   DealState,
   Ruling,
@@ -113,6 +114,8 @@ const VOTE_TOOL = {
 function buildJurorPrompt(args: {
   history: SignedMessage[];
   evidence: EvidencePool;
+  scenario?: Scenario | null;
+  claim?: string | null;
 }): string {
   const evidenceLines = args.evidence.signed.map((e) => {
     return [
@@ -131,8 +134,26 @@ function buildJurorPrompt(args: {
       `    payload: ${JSON.stringify(m.payload)}`,
     ].join("\n");
   });
+  // Party labels: scenario template wins, then schema-less claim falls back to
+  // generic "claimant / respondent" framing so the jury isn't tricked into a
+  // hardcoded SaaS-billing context for non-AI-overrun disputes.
+  const ariaLabel =
+    args.scenario?.agents.aria.display_name ?? "Aria (claimant)";
+  const atlasLabel =
+    args.scenario?.agents.atlas.display_name ?? "Atlas (respondent)";
+  const caseSummary =
+    args.scenario?.case_summary ??
+    args.claim ??
+    "Schema-less dispute. The claim itself was not provided to the tribunal — base your reasoning solely on the evidence pool and message history below.";
+  const stateUnits = args.scenario?.state_units ?? "the dispute's remedy units";
   return [
-    `You are reviewing a deadlocked negotiation between Aria (Customer's FinOps agent) and Atlas (Provider's Account agent).`,
+    `You are reviewing a deadlocked dispute between ${ariaLabel} and ${atlasLabel}.`,
+    ``,
+    `## Case`,
+    caseSummary,
+    ``,
+    `## Remedy units in this dispute`,
+    stateUnits,
     ``,
     `## Case record — evidence pool`,
     evidenceLines.join("\n\n"),
@@ -142,7 +163,7 @@ function buildJurorPrompt(args: {
     ``,
     `## Instruction`,
     `Cast your vote via the cast_vote tool. Cite at least 2 evidence hashes from the pool above.`,
-    `Pick a remedy that respects evidence tiers (S > A > B > C).`,
+    `Pick a remedy that respects evidence tiers (S > A > B > C) and the party labels above.`,
   ].join("\n");
 }
 
@@ -151,9 +172,16 @@ async function castVote(args: {
   history: SignedMessage[];
   evidence: EvidencePool;
   juror_did: string;
+  scenario?: Scenario | null;
+  claim?: string | null;
 }): Promise<{ vote: Vote; raw: Record<string, unknown> }> {
   const client = getClient();
-  const prompt = buildJurorPrompt({ history: args.history, evidence: args.evidence });
+  const prompt = buildJurorPrompt({
+    history: args.history,
+    evidence: args.evidence,
+    scenario: args.scenario,
+    claim: args.claim,
+  });
   const resp = await client.messages.create({
     model: args.persona.model,
     max_tokens: 1500,
@@ -165,21 +193,66 @@ async function castVote(args: {
   for (const block of resp.content) {
     if (block.type === "tool_use" && block.name === "cast_vote") {
       const input = (block.input ?? {}) as Record<string, unknown>;
+      const rawOutcome = String(input.outcome ?? "abstain");
+      const validOutcomes = new Set<Vote["outcome"]>([
+        "claimant_prevails",
+        "claimant_partial",
+        "respondent_prevails",
+        "abstain",
+      ]);
+      const outcome = validOutcomes.has(rawOutcome as Vote["outcome"])
+        ? (rawOutcome as Vote["outcome"])
+        : "abstain";
+      const rawCited = Array.isArray(input.cited_evidence_hashes)
+        ? (input.cited_evidence_hashes as unknown[])
+            .filter((h) => typeof h === "string")
+            .map((h) => h as string)
+        : [];
+      const rawConfidence = Number(input.confidence ?? 0);
+      const confidence = Number.isFinite(rawConfidence)
+        ? Math.max(0, Math.min(1, rawConfidence))
+        : 0;
       const vote: Vote = {
         type: "Vote",
         juror: args.persona.name,
         juror_did: args.juror_did,
         juror_model: args.persona.model,
-        outcome: String(input.outcome ?? "abstain") as Vote["outcome"],
+        outcome,
         rationale: String(input.rationale ?? ""),
-        cited_evidence_hashes: (input.cited_evidence_hashes as string[]) ?? [],
-        confidence: Number(input.confidence ?? 0),
+        cited_evidence_hashes: rawCited,
+        confidence,
         timestamp: new Date().toISOString(),
       };
       return { vote, raw: input };
     }
   }
   throw new Error(`Juror ${args.persona.name} returned no cast_vote tool block`);
+}
+
+/** Build a stub abstain vote for a juror that failed (timeout, 5xx, malformed
+ *  response). Keeps the panel size at 3 so confidence math stays stable, and
+ *  records the failure reason in the rationale so an auditor can see why this
+ *  juror didn't actually deliberate. */
+function abstainStub(args: {
+  persona: JurorPersona;
+  juror_did: string;
+  reason: string;
+}): { vote: Vote; raw: Record<string, unknown> } {
+  const vote: Vote = {
+    type: "Vote",
+    juror: args.persona.name,
+    juror_did: args.juror_did,
+    juror_model: args.persona.model,
+    outcome: "abstain",
+    rationale: `Juror unavailable: ${args.reason}`,
+    cited_evidence_hashes: [],
+    confidence: 0,
+    timestamp: new Date().toISOString(),
+  };
+  return {
+    vote,
+    raw: { remedy_credit_usd: 0, remedy_terms: "juror unavailable" },
+  };
 }
 
 function pickMajorityOutcome(
@@ -218,18 +291,39 @@ export async function deliberate(args: {
   agents: AgentBook;
   evidence: EvidencePool;
   history: SignedMessage[];
+  /** Optional scenario template — when present, jurors get the real party
+   *  display names and case_summary instead of a hardcoded SaaS-billing label. */
+  scenario?: Scenario | null;
+  /** Optional free-form claim — used as case_summary fallback for schema-less
+   *  disputes opened with `claim` (no scenario template). */
+  claim?: string | null;
 }): Promise<DeliberateResult> {
   const tribunal = args.agents.tribunal;
 
-  const results = await Promise.all(
+  // Promise.allSettled: a single juror failure (timeout, 5xx, malformed JSON)
+  // can no longer kill the whole deliberation. Failed jurors emit a stub
+  // abstain vote so the panel stays at size 3 and the failure is visible
+  // in the audit trail.
+  const settled = await Promise.allSettled(
     PERSONAS.map((p) =>
       castVote({
         persona: p,
         history: args.history,
         evidence: args.evidence,
         juror_did: tribunal.did,
+        scenario: args.scenario,
+        claim: args.claim,
       }),
     ),
+  );
+  const results: Array<{ vote: Vote; raw: Record<string, unknown> }> = settled.map(
+    (s, i) => {
+      const persona = PERSONAS[i]!;
+      if (s.status === "fulfilled") return s.value;
+      const reason =
+        s.reason instanceof Error ? s.reason.message : String(s.reason);
+      return abstainStub({ persona, juror_did: tribunal.did, reason });
+    },
   );
 
   // Validate cited_evidence_hashes; if any vote cites non-existent evidence,
@@ -260,9 +354,15 @@ export async function deliberate(args: {
   const compoundConfidence = agreementShare * meanIndividualConfidence;
 
   // If the panel is too divided OR collectively too uncertain, mark inconclusive
-  // and recommend appeal rather than impose a low-confidence ruling.
+  // and recommend appeal rather than impose a low-confidence ruling. Also
+  // mark inconclusive when the majority is `abstain` regardless of confidence:
+  // 3/3 abstains at high reported confidence is still "we couldn't decide".
   const INCONCLUSIVE_THRESHOLD = 0.5;
-  const isInconclusive = compoundConfidence < INCONCLUSIVE_THRESHOLD;
+  const failedJurorCount = settled.filter((s) => s.status === "rejected").length;
+  const isInconclusive =
+    compoundConfidence < INCONCLUSIVE_THRESHOLD ||
+    majorityOutcome === "abstain" ||
+    failedJurorCount > 0;
   const finalOutcome: Vote["outcome"] = isInconclusive
     ? ("abstain" as const)
     : majorityOutcome;
@@ -270,7 +370,13 @@ export async function deliberate(args: {
   const rationaleHeader = isInconclusive
     ? `INCONCLUSIVE — agreement share ${(agreementShare * 100).toFixed(0)}%, ` +
       `mean confidence ${meanIndividualConfidence.toFixed(2)}, ` +
-      `compound ${compoundConfidence.toFixed(2)} below ${INCONCLUSIVE_THRESHOLD}. ` +
+      `compound ${compoundConfidence.toFixed(2)} (threshold ${INCONCLUSIVE_THRESHOLD}). ` +
+      (failedJurorCount > 0
+        ? `${failedJurorCount} juror(s) unavailable. `
+        : ``) +
+      (majorityOutcome === "abstain"
+        ? `Majority outcome was abstain. `
+        : ``) +
       `Pacta recommends human appeal (Pacta Court tier).\n\n`
     : "";
   const ruling: Ruling = {

@@ -54,6 +54,7 @@ export type OrchestratorEvent =
   | { kind: "round.start"; round: number }
   | { kind: "message.rejected"; round: number; role: AgentRole; reason: string; attempt: number }
   | { kind: "message.accepted"; round: number; role: AgentRole; signed: SignedMessage; hash: string }
+  | { kind: "turn.skipped"; round: number; role: AgentRole; reason: string; attempts: number }
   | { kind: "convergence"; final_state: DealState; accepted_msg_hash: string }
   | { kind: "deadline" }
   | { kind: "deadlock"; reason: string }
@@ -423,6 +424,23 @@ export async function* runNegotiation(
         history.push(signed);
         accepted = true;
         yield { kind: "message.accepted", round, role, signed, hash: h };
+      }
+
+      if (!accepted) {
+        // Both attempts failed. Emit a structured skip event so audit consumers
+        // (and the deadlock detector reasoning about this round's outcome) can
+        // tell the difference between "no message because deadlocked" and
+        // "no message because the LLM driver failed to comply".
+        const lastReason =
+          feedback[feedback.length - 1] ??
+          "driver failed to produce a valid message after 2 attempts";
+        yield {
+          kind: "turn.skipped",
+          round,
+          role,
+          reason: lastReason,
+          attempts: 2,
+        };
       }
 
       // After each agent's turn, check convergence — if both have already accepted, done.

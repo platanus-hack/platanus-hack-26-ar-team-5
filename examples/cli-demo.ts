@@ -128,6 +128,11 @@ async function main() {
           `  ${pc.red("✗")} ${roleTag(scenarioId, ev.role)}  ${pc.red("rejected")}  ${pc.gray("attempt " + ev.attempt + ":")} ${ev.reason}`,
         );
         break;
+      case "turn.skipped":
+        console.log(
+          `  ${pc.red("⊘")} ${roleTag(scenarioId, ev.role)}  ${pc.red("turn skipped after " + ev.attempts + " attempts:")} ${pc.gray(ev.reason)}`,
+        );
+        break;
       case "message.accepted": {
         const m = ev.signed;
         const tag = roleTag(scenarioId, ev.role);

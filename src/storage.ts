@@ -93,9 +93,18 @@ export type LiveDispute = StoredDispute & {
   evidence: EvidencePool;
 };
 
+export type CasResult = { ok: true } | { ok: false; currentVersion: number };
+
 export interface DisputeStorage {
   get(id: string): Promise<StoredDispute | null>;
   put(state: StoredDispute): Promise<void>;
+  /** Atomic compare-and-set: write `stored` only if storage's current version
+   *  equals `expectedVersion`. Returns `{ok:true}` on success, or
+   *  `{ok:false, currentVersion}` if another writer landed first. The whole
+   *  read-compare-write must be atomic relative to other writers — Memory
+   *  achieves this trivially (no awaits between read and write); Redis uses
+   *  a Lua script. */
+  casPut(stored: StoredDispute, expectedVersion: number): Promise<CasResult>;
   delete(id: string): Promise<void>;
   /** Return ids of disputes currently held in storage. Order is implementation-
    *  defined; callers that need recency must sort by `created_at` themselves. */
@@ -109,6 +118,22 @@ class MemoryStorage implements DisputeStorage {
   }
   async put(state: StoredDispute) {
     this.map.set(state.dispute_id, state);
+  }
+  async casPut(stored: StoredDispute, expectedVersion: number): Promise<CasResult> {
+    // Single-process, single-threaded JS Map. No awaits between read and
+    // write inside this function → atomic with respect to other casPut /
+    // put calls on the same storage instance.
+    const current = this.map.get(stored.dispute_id);
+    const currentVersion = current?.version ?? 0;
+    if (current && currentVersion !== expectedVersion) {
+      return { ok: false, currentVersion };
+    }
+    if (!current && expectedVersion !== 0) {
+      // No record yet → only the very first write (expectedVersion=0) is valid.
+      return { ok: false, currentVersion: 0 };
+    }
+    this.map.set(stored.dispute_id, stored);
+    return { ok: true };
   }
   async delete(id: string) {
     this.map.delete(id);
@@ -146,6 +171,40 @@ class RedisStorage implements DisputeStorage {
       ex: this.ttlSeconds,
     });
     await this.redis.sadd(this.indexKey, state.dispute_id);
+  }
+  async casPut(stored: StoredDispute, expectedVersion: number): Promise<CasResult> {
+    // Atomic compare-and-set via Lua. Two concurrent writers that both load
+    // at version N can no longer both succeed at writing N+1 — the Lua body
+    // is single-threaded inside Redis.
+    const lua = `
+local current = redis.call('GET', KEYS[1])
+local currentVersion = 0
+if current then
+  local ok, decoded = pcall(cjson.decode, current)
+  if ok and type(decoded) == 'table' and decoded.version then
+    currentVersion = tonumber(decoded.version) or 0
+  end
+end
+if currentVersion ~= tonumber(ARGV[1]) then
+  return {0, currentVersion}
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+return {1, currentVersion}
+`;
+    const raw = await this.redis.eval(
+      lua,
+      [this.key(stored.dispute_id)],
+      [String(expectedVersion), JSON.stringify(stored), String(this.ttlSeconds)],
+    );
+    const arr = raw as [number | string, number | string];
+    const ok = Number(arr[0]) === 1;
+    const currentVersion = Number(arr[1]);
+    if (ok) {
+      // Index update is idempotent and outside the CAS — safe to skip on conflict.
+      await this.redis.sadd(this.indexKey, stored.dispute_id).catch(() => undefined);
+      return { ok: true };
+    }
+    return { ok: false, currentVersion };
   }
   async delete(id: string) {
     await this.redis.del(this.key(id));
@@ -306,31 +365,21 @@ export class StaleVersionError extends Error {
   }
 }
 
-/** Save a LiveDispute back to storage with optimistic concurrency.
+/** Save a LiveDispute back to storage with TRUE optimistic concurrency.
  *
  *  The save succeeds only if storage's current version matches the version
  *  the caller loaded. On conflict, throws StaleVersionError so the caller
  *  can decide whether to retry from a fresh load (and re-apply their change)
  *  or abort because the dispute is now finalized.
  *
- *  This closes the seed-loop-vs-withdraw race: a Claude-driven turn that
- *  loads at version N and tries to save at N+1 will fail if a withdraw
- *  landed at N+1 while we were calling Claude. The seed loop sees the
- *  StaleVersionError, reloads, and finds finalized=true → bails cleanly. */
+ *  Atomicity: the read-compare-write is pushed into the storage layer. On
+ *  Redis it runs as a Lua script (single-threaded inside Redis). On Memory
+ *  it runs synchronously inside one async function (no awaits between
+ *  read and write). Two concurrent saveDispute calls can no longer both
+ *  succeed at the same target version. */
 export async function saveDispute(live: LiveDispute): Promise<void> {
   const expectedVersion = live.version;
-  // CAS: re-read the stored version under the same key. If it doesn't match
-  // what the caller loaded, somebody else wrote in between — abort.
-  const current = await getStorage().get(live.dispute_id);
-  if (current && (current.version ?? 0) !== expectedVersion) {
-    throw new StaleVersionError(
-      live.dispute_id,
-      expectedVersion,
-      current.version ?? 0,
-    );
-  }
   const nextVersion = expectedVersion + 1;
-  live.version = nextVersion;
   const stored: StoredDispute = {
     dispute_id: live.dispute_id,
     claim: live.claim,
@@ -352,5 +401,14 @@ export async function saveDispute(live: LiveDispute): Promise<void> {
     agent_keys: live.agent_keys,
     version: nextVersion,
   };
-  await getStorage().put(stored);
+  const result = await getStorage().casPut(stored, expectedVersion);
+  if (!result.ok) {
+    throw new StaleVersionError(
+      live.dispute_id,
+      expectedVersion,
+      result.currentVersion,
+    );
+  }
+  // Only mutate the live object after CAS confirms the new version persisted.
+  live.version = nextVersion;
 }

@@ -36,6 +36,7 @@ import type {
 export type StepEvent =
   | { kind: "message.rejected"; role: AgentRole; reason: string; attempt: number }
   | { kind: "message.accepted"; role: AgentRole; signed: SignedMessage; hash: string }
+  | { kind: "turn.skipped"; role: AgentRole; reason: string; attempts: number }
   | { kind: "round.advanced"; new_round: number }
   | { kind: "convergence"; final_state: DealState; accepted_msg_hash: string }
   | { kind: "deadlock"; reason: string }
@@ -329,6 +330,8 @@ async function escalateAndFinalize(
     agents: state.agents,
     evidence: state.evidence,
     history: state.history,
+    scenario: state.scenario,
+    claim: state.claim,
   });
   state.ruling = { votes, ruling };
   events.push({ kind: "jury.ruled" });
@@ -493,6 +496,23 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
       const r = applyAttempt(state, role, body, attempt);
       events.push(...r.events);
       accepted = r.accepted;
+    }
+    if (!accepted) {
+      // Both attempts failed. Emit a structured skip event so the audit trail
+      // shows WHY this round lacks a message from this role — instead of a
+      // silent gap that the deadlock detector might misinterpret as flat
+      // utility. Clear pending_feedback so it doesn't bleed into the next
+      // role's prompt and so the next persisted state matches what observers see.
+      const lastReason =
+        state.pending_feedback[state.pending_feedback.length - 1] ??
+        "claude failed to produce a valid message after 2 attempts";
+      events.push({
+        kind: "turn.skipped",
+        role,
+        reason: lastReason,
+        attempts: attempt,
+      });
+      state.pending_feedback = [];
     }
     // Explicit Escalate from a Claude-driven agent → tribunal, same as the
     // external path. Keeps the two engines symmetric.

@@ -1,8 +1,5 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Github } from "lucide-react";
-import { codeToHtml } from "shiki";
-
-import { CodeTabs, type CodeSample } from "@/components/code-tabs";
 
 const repoUrl = "https://github.com/platanus-hack/platanus-hack-26-ar-team-5";
 
@@ -19,7 +16,9 @@ const primitives = [
   ["CounterPropose", "Reject the current state and offer another."],
   ["Reveal", "Disclose private info. Binding."],
   ["Accept", "Sign the current state."],
-  ["Escalate", "Hand the deadlock to the mediator clause."],
+  ["Amend", "Refine an accepted state in place. Positive-sum."],
+  ["Escalate", "Hand the deadlock to the tribunal."],
+  ["Withdraw", "Exit the dispute. Binding once both sides have engaged."],
 ];
 
 const tiers = [
@@ -29,98 +28,16 @@ const tiers = [
   ["C", "Pure argumentation", "Modulates only. Never decides alone."],
 ];
 
-const composes = [
-  ["Transport", "A2A extension"],
-  ["Tools", "MCP server"],
-  ["Settlement", "x402 / AP2 / Stripe"],
-  ["Reputation", "ERC-8004"],
-];
-
-const codeSamples: Array<{
-  key: string;
-  label: string;
-  filename: string;
-  lang: string;
-  code: string;
-}> = [
-  {
-    key: "python",
-    label: "Python",
-    filename: "dispute.py",
-    lang: "python",
-    code: `from pacta import Agent, MediationClause, negotiate
-
-buyer  = Agent.from_url("https://acme.io/.well-known/agent-card.json")
-seller = Agent.from_url("https://supplier.com/.well-known/agent-card.json")
-
-deal = negotiate(
-    parties=[buyer, seller],
-    terms_schema={"price": (800, 1200), "delivery_days": (1, 14)},
-    mediation=MediationClause(preset="balanced", binding=True),
-)
-
-# deal.state       → {price: 980, delivery_days: 3}
-# deal.audit_trail → signed DAG, every move parent-linked
-# deal.signatures  → Ed25519 from each party DID`,
-  },
-  {
-    key: "typescript",
-    label: "TypeScript",
-    filename: "dispute.ts",
-    lang: "typescript",
-    code: `import { runPacta } from "pacta";
-
-// Two agents disagree. One generator yields the whole lifecycle.
-// Every protocol message signed, every node parent-linked.
-for await (const event of runPacta({ scenario: "ai-overrun" })) {
-  if (event.kind === "message.accepted") {
-    const m = event.signed;
-    console.log(\`\${event.role}  \${m.type}  \${event.hash}\`);
-  }
-
-  if (event.kind === "jury.ruling") {
-    const { outcome, confidence } = event.ruling;
-    console.log(\`ruling: \${outcome}  conf=\${confidence}\`);
-  }
-
-  if (event.kind === "bundle") {
-    // Merkle root over messages + evidence + outcome.
-    // Verifiable from any other system that holds the public DIDs.
-    console.log(\`bundle.root_hash = \${event.bundle.root_hash}\`);
-  }
-}`,
-  },
-];
-
-async function buildSamples(): Promise<CodeSample[]> {
-  return Promise.all(
-    codeSamples.map(async (s) => ({
-      key: s.key,
-      label: s.label,
-      filename: s.filename,
-      code: s.code,
-      html: await codeToHtml(s.code, {
-        lang: s.lang,
-        theme: "github-dark-default",
-      }),
-    })),
-  );
-}
-
-export default async function LandingPage() {
-  const samples = await buildSamples();
-
+export default function LandingPage() {
   return (
     <main className="min-h-screen bg-[#0c0c0c] text-white">
       <Nav />
       <Hero />
       <Explainer />
       <StackSection />
-      <CodeSection samples={samples} />
       <FlowsSection />
       <Primitives />
       <Tiers />
-      <Composes />
       <Footer />
     </main>
   );
@@ -311,16 +228,16 @@ function FlowCard({
 function ConvergedDag() {
   return (
     <svg
-      viewBox="0 0 540 200"
-      className="block h-auto w-full min-w-[440px]"
+      viewBox="0 0 580 200"
+      className="block h-auto w-full min-w-[480px]"
       role="img"
-      aria-label="Convergence flow: Aria proposes, Atlas counters, both Accept the same target, root hash."
+      aria-label="Convergence flow: Aria proposes, Atlas counters, both Aria and Atlas Accept the same target, single root hash."
     >
       {[30, 100, 170].map((y) => (
         <line
           key={y}
           x1={110}
-          x2={540}
+          x2={580}
           y1={y}
           y2={y}
           stroke="rgba(255,255,255,0.05)"
@@ -331,17 +248,19 @@ function ConvergedDag() {
       <FlowLane y={65} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
       <FlowLane y={135} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
 
-      <DagEdge d="M 175 65 C 215 65, 215 135, 255 135" />
-      <DagEdge d="M 295 135 C 335 135, 335 65, 375 65" />
-      <DagEdge d="M 395 65 L 465 65" tone="root" />
-      <DagEdge d="M 295 135 C 380 135, 430 100, 465 70" tone="root" />
+      <DagEdge d="M 155 65 C 195 65, 195 135, 215 135" />
+      <DagEdge d="M 255 135 C 295 135, 295 65, 335 65" />
+      <DagEdge d="M 255 135 L 335 135" />
+      <DagEdge d="M 375 65 C 415 65, 415 100, 455 100" tone="root" />
+      <DagEdge d="M 375 135 C 415 135, 415 100, 455 100" tone="root" />
 
-      <DagNode cx={155} cy={65} fill="#A4F4FD" icon="·" label="Propose" />
-      <DagNode cx={275} cy={135} fill="#7AA2F7" icon="↺" label="Counter" />
-      <DagNode cx={395} cy={65} fill="#E7C59A" icon="✓" label="Accept" ringed />
+      <DagNode cx={135} cy={65} fill="#A4F4FD" icon="·" label="Propose" />
+      <DagNode cx={235} cy={135} fill="#7AA2F7" icon="↺" label="Counter" />
+      <DagNode cx={355} cy={65} fill="#E7C59A" icon="✓" label="Accept" ringed />
+      <DagNode cx={355} cy={135} fill="#E7C59A" icon="✓" label="Accept" ringed />
       <DagNode
-        cx={485}
-        cy={65}
+        cx={475}
+        cy={100}
         fill="transparent"
         outline="#ffffff"
         icon="⚿"
@@ -354,16 +273,16 @@ function ConvergedDag() {
 function TribunalDag() {
   return (
     <svg
-      viewBox="0 0 600 250"
-      className="block h-auto w-full min-w-[480px]"
+      viewBox="0 0 640 240"
+      className="block h-auto w-full min-w-[520px]"
       role="img"
       aria-label="Tribunal flow: parties deadlock, three LLM jurors vote, ruling, root hash."
     >
-      {[30, 80, 145, 220].map((y) => (
+      {[30, 85, 150, 215].map((y) => (
         <line
           key={y}
           x1={110}
-          x2={600}
+          x2={640}
           y1={y}
           y2={y}
           stroke="rgba(255,255,255,0.05)"
@@ -371,29 +290,29 @@ function TribunalDag() {
         />
       ))}
 
-      <FlowLane y={55} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
-      <FlowLane y={120} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
+      <FlowLane y={60} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
+      <FlowLane y={125} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
       <FlowLane y={190} eyebrow="Arbiter" name="Tribunal" color="rgba(192,132,252,0.85)" />
 
-      <DagEdge d="M 155 55 C 195 55, 195 120, 235 120" />
-      <DagEdge d="M 255 120 C 295 120, 295 55, 335 55" />
-      <DagEdge d="M 335 55 C 380 55, 380 190, 410 190" tone="tribunal" />
-      <DagEdge d="M 335 55 C 280 55, 280 190, 250 190" tone="tribunal" />
-      <DagEdge d="M 335 55 C 320 55, 320 190, 330 190" tone="tribunal" />
-      <DagEdge d="M 270 190 L 480 190" tone="tribunal" />
-      <DagEdge d="M 350 190 L 480 190" tone="tribunal" />
-      <DagEdge d="M 430 190 L 480 190" tone="tribunal" />
-      <DagEdge d="M 500 190 L 555 190" tone="root" />
+      <DagEdge d="M 155 60 C 195 60, 195 125, 220 125" />
+      <DagEdge d="M 250 125 C 290 125, 290 60, 320 60" />
+      <DagEdge d="M 335 75 C 335 130, 250 130, 250 175" tone="tribunal" />
+      <DagEdge d="M 335 75 L 350 175" tone="tribunal" />
+      <DagEdge d="M 335 75 C 335 130, 450 130, 450 175" tone="tribunal" />
+      <DagEdge d="M 265 190 L 535 190" tone="tribunal" />
+      <DagEdge d="M 365 190 L 535 190" tone="tribunal" />
+      <DagEdge d="M 465 190 L 535 190" tone="tribunal" />
+      <DagEdge d="M 565 190 L 600 190" tone="root" />
 
-      <DagNode cx={135} cy={55} fill="#A4F4FD" icon="·" label="Propose" />
-      <DagNode cx={235} cy={120} fill="#7AA2F7" icon="↺" label="Counter" />
-      <DagNode cx={335} cy={55} fill="#FF7A59" icon="↗" label="Escalate" />
+      <DagNode cx={135} cy={60} fill="#A4F4FD" icon="·" label="Propose" />
+      <DagNode cx={235} cy={125} fill="#7AA2F7" icon="↺" label="Counter" />
+      <DagNode cx={335} cy={60} fill="#FF7A59" icon="↗" label="Escalate" />
       <DagNode cx={250} cy={190} fill="#C084FC" icon="⚖" label="Aequitas" />
-      <DagNode cx={340} cy={190} fill="#C084FC" icon="⚖" label="Utilis" />
-      <DagNode cx={430} cy={190} fill="#C084FC" icon="⚖" label="Velox" />
-      <DagNode cx={500} cy={190} fill="#C084FC" icon="§" label="Ruling" ringed />
+      <DagNode cx={350} cy={190} fill="#C084FC" icon="⚖" label="Utilis" />
+      <DagNode cx={450} cy={190} fill="#C084FC" icon="⚖" label="Velox" />
+      <DagNode cx={550} cy={190} fill="#C084FC" icon="§" label="Ruling" ringed />
       <DagNode
-        cx={570}
+        cx={615}
         cy={190}
         fill="transparent"
         outline="#ffffff"
@@ -576,26 +495,6 @@ function StackSection() {
   );
 }
 
-function CodeSection({ samples }: { samples: CodeSample[] }) {
-  return (
-    <section className="mx-auto max-w-5xl px-6 py-20">
-      <SectionHeader eyebrow="The SDK" title="Three verbs. Any domain." />
-
-      <div className="mt-12 grid gap-10 md:grid-cols-[0.8fr_1.2fr] md:items-start">
-        <p className="t-label max-w-sm text-white/60">
-          <span className="font-mono text-white">negotiate</span>,{" "}
-          <span className="font-mono text-white">dispute</span>,{" "}
-          <span className="font-mono text-white">settle</span>. State machine,
-          signatures, evidence tiers and the audit DAG run underneath. You bring
-          the schema and the utility. Pacta brings the agreement.
-        </p>
-
-        <CodeTabs samples={samples} />
-      </div>
-    </section>
-  );
-}
-
 function Primitives() {
   return (
     <section
@@ -604,10 +503,10 @@ function Primitives() {
     >
       <SectionHeader
         eyebrow="The protocol"
-        title="Six primitives. Nothing more."
+        title="Eight primitives. Nothing more."
       />
 
-      <ul className="mt-12 grid gap-px overflow-hidden rounded-md border border-white/[0.08] bg-white/[0.06] md:grid-cols-3">
+      <ul className="mt-12 grid gap-px overflow-hidden rounded-md border border-white/[0.08] bg-white/[0.06] sm:grid-cols-2 md:grid-cols-4">
         {primitives.map(([name, desc], i) => (
           <li key={name} className="flex flex-col gap-3 bg-[#0c0c0c] p-5">
             <div className="flex items-center justify-between">
@@ -648,31 +547,6 @@ function Tiers() {
             <span className="t-body hidden text-white/45 md:block">
               {examples}
             </span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function Composes() {
-  return (
-    <section className="mx-auto max-w-5xl border-t border-white/[0.06] px-6 py-20">
-      <SectionHeader
-        eyebrow="Plays well with the stack"
-        title="Pacta composes. It doesn't replace."
-      />
-
-      <div className="mt-12 grid gap-px overflow-hidden rounded-md border border-white/[0.08] bg-white/[0.06] md:grid-cols-2">
-        {composes.map(([surface, protocol]) => (
-          <div
-            key={surface}
-            className="flex items-center justify-between bg-[#0c0c0c] p-5"
-          >
-            <span className="t-body uppercase tracking-[0.18em] text-white/35">
-              {surface}
-            </span>
-            <span className="t-label font-mono text-white">{protocol}</span>
           </div>
         ))}
       </div>

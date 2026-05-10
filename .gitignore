@@ -37,3 +37,17 @@ tmp/
 .claude/
 
 .env*.local
+
+# Next.js / build artifacts
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Playwright + dashboard scratch
+.playwright-mcp/
+dashboard-*.png
+page-*.png
+# Public assets that legitimately match the patterns above must be re-included.
+!public/dashboard-preview.png
+
+# Local archives
+pacta.zip

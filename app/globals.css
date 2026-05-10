@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Surface / chrome ─────────────────────────────────────────────────── */
+  --color-deep-space: #0c0c0c;
+  --color-midnight-void: #0b0b0c;
+  --color-graphite: #131316;
+  --color-iron: #1a1a1e;
+  --color-steel: #25252b;
+  --color-line: #2a2a31;
+  --color-line-soft: #1f1f25;
+
+  /* ── Foreground / text ────────────────────────────────────────────────── */
+  --color-polar-white: #f3f3f3;
+  --color-bone: #d8d8d4;
+  --color-ash-gray: #8b8b94;
+  --color-dim: #5d5d66;
+
+  /* ── Accents (sparingly) ──────────────────────────────────────────────── */
+  --color-amber-glow: #e7c59a;
+  --color-pulse-green: #2fbf71;
+  --color-warn-red: #e25b5b;
+  --color-aria: #e7c59a;
+  --color-atlas: #7aa2f7;
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  --font-aeonik: var(--font-inter), var(--font-geist-sans), ui-sans-serif,
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-input: var(--font-geist-mono), ui-monospace, "JetBrains Mono",
+    "IBM Plex Mono", "Fira Code", monospace;
+
+  --text-micro: 11px;
+  --text-micro--line-height: 1.45;
+  --text-micro--letter-spacing: 0.04em;
+
+  --text-caption: 12.5px;
+  --text-caption--line-height: 1.45;
+
+  --text-body: 13.5px;
+  --text-body--line-height: 1.5;
+
+  --text-stat: 22px;
+  --text-stat--line-height: 1.05;
+  --text-stat--letter-spacing: -0.01em;
+
+  --text-stat-lg: 32px;
+  --text-stat-lg--line-height: 1;
+  --text-stat-lg--letter-spacing: -0.015em;
+
+  --spacing: 4px;
+
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-pill: 99px;
+}
+
+html {
+  background-color: var(--color-deep-space);
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-deep-space);
+  color: var(--color-polar-white);
+  font-family: var(--font-aeonik);
+  font-feature-settings: "ss01", "cv11", "tnum";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: var(--color-amber-glow);
+  color: var(--color-deep-space);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Utility helpers
+   ───────────────────────────────────────────────────────────────────────── */
+.font-aeonik { font-family: var(--font-aeonik); }
+.font-mono   { font-family: var(--font-input); }
+
+.text-micro {
+  font-size: var(--text-micro);
+  line-height: var(--text-micro--line-height);
+  letter-spacing: var(--text-micro--letter-spacing);
+}
+.text-caption { font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.text-body    { font-size: var(--text-body);    line-height: var(--text-body--line-height); }
+.text-stat    { font-size: var(--text-stat);    line-height: var(--text-stat--line-height);    letter-spacing: var(--text-stat--letter-spacing); }
+.text-stat-lg { font-size: var(--text-stat-lg); line-height: var(--text-stat-lg--line-height); letter-spacing: var(--text-stat-lg--letter-spacing); }
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Decorative grid background — subtle "control room" feel
+   ───────────────────────────────────────────────────────────────────────── */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.bg-noise {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Live indicator pulse
+   ───────────────────────────────────────────────────────────────────────── */
+@keyframes pacta-pulse {
+  0%, 100% { transform: scale(1);   opacity: 1;   }
+  50%      { transform: scale(1.6); opacity: 0.4; }
+}
+
+.pacta-pulse {
+  animation: pacta-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pacta-ping {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  80%, 100% { transform: scale(2.6); opacity: 0; }
+}
+
+.pacta-ping {
+  animation: pacta-ping 1.6s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   New-row enter animation for streaming lists
+   ───────────────────────────────────────────────────────────────────────── */
+@keyframes pacta-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);  }
+}
+
+.pacta-row-in {
+  animation: pacta-row-in 320ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* Skeleton shimmer for loading states */
+@keyframes pacta-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0;  }
+}
+
+.pacta-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(243, 243, 243, 0.05) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: pacta-shimmer 1.8s ease-in-out infinite;
+}
+
+/* Hide scrollbars for inline scrolling rails */
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* Dot grid — light, used inside cards as a watermark */
+.dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Landing-only type tokens (Inter). Three sizes, used by app/page.tsx.
+ * ────────────────────────────────────────────────────────────────────── */
+.t-display {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(40px, 7vw, 72px);
+  font-weight: 300;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+.t-body {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 300;
+  line-height: 16px;
+}
+.t-label {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+/* Hero entrance — replaces motion/react fade-ins on the landing. */
+@keyframes hero-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hero-fade { animation: hero-fade 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.hero-d-0 { animation-delay: 0s; }
+.hero-d-1 { animation-delay: 0.05s; }
+.hero-d-2 { animation-delay: 0.2s; }
+.hero-d-3 { animation-delay: 0.3s; }
+
+/* shadcn/ui semantic tokens (used by components/ui/code-block.tsx). */
+:root {
+  --color-card: var(--color-graphite);
+  --color-card-foreground: var(--color-polar-white);
+  --color-border: var(--color-line);
+}

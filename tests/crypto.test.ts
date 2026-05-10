@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { generateKeypair, sign, verify } from "../src/crypto.js";
-import { canonicalBytes } from "../src/canonical.js";
+import { generateKeypair, sign, verify } from "../src/crypto";
+import { canonicalBytes } from "../src/canonical";
 
 describe("crypto (mocked)", () => {
   it("generateKeypair returns 32-byte private and public keys", () => {

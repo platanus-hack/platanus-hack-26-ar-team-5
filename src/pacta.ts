@@ -1,18 +1,18 @@
-import { hash as hashOf, canonicalize } from "./canonical.js";
-import { bootAgents } from "./agents.js";
-import { buildEvidencePool } from "./fixtures.js";
+import { hash as hashOf, canonicalize } from "./canonical";
+import { bootAgents } from "./agents";
+import { buildEvidencePool } from "./fixtures";
 import {
   runNegotiation,
   type LLMDriver,
   type OrchestratorConfig,
   type OrchestratorEvent,
-} from "./orchestrator.js";
-import { makeClaudeDriver } from "./claude_driver.js";
-import { makeMockDriver } from "./mock_driver.js";
-import { deliberate } from "./jury.js";
-import type { Bundle, SignedRuling, SignedVote } from "./types.js";
-import { docHash } from "./sign.js";
-import { getScenario, listScenarios, type Scenario } from "./scenarios/index.js";
+} from "./orchestrator";
+import { makeClaudeDriver } from "./claude_driver";
+import { makeMockDriver } from "./mock_driver";
+import { deliberate } from "./jury";
+import type { Bundle, SignedRuling, SignedVote, TribunalMode } from "./types";
+import { docHash } from "./sign";
+import { getScenario, listScenarios, type Scenario } from "./scenarios/index";
 
 export type RunOptions = {
   /** Scenario id (e.g. "ai-overrun", "oncology"). Defaults to ai-overrun. */
@@ -22,6 +22,10 @@ export type RunOptions = {
   /** If true, use the deterministic mock driver instead of Claude. */
   mock?: boolean;
   orchestratorConfig?: Partial<OrchestratorConfig>;
+  /** Pre-commit dispute-resolution mode. Defaults to `binding`. Under `none`,
+   *  the CLI demo will finalize as a deadline (no jury) when bilateral
+   *  negotiation can't close. */
+  tribunal_mode?: TribunalMode;
 };
 
 export type StreamEvent =
@@ -80,6 +84,8 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
 
   const negotiationOutcome = result.value.outcome;
 
+  const tribunal_mode: TribunalMode = options.tribunal_mode ?? "binding";
+
   let bundleOutcome: Bundle["outcome"];
   if (negotiationOutcome.kind === "converged") {
     bundleOutcome = {
@@ -88,8 +94,9 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
       accepted_msg_hash: negotiationOutcome.accepted_msg_hash,
     };
   } else if (
-    negotiationOutcome.kind === "escalation" ||
-    negotiationOutcome.kind === "deadlock"
+    (negotiationOutcome.kind === "escalation" ||
+      negotiationOutcome.kind === "deadlock") &&
+    tribunal_mode === "binding"
   ) {
     yield { kind: "jury.start" };
     const { votes, ruling } = await deliberate({
@@ -101,6 +108,8 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
     yield { kind: "jury.ruling", ruling };
     bundleOutcome = { kind: "ruling", votes, ruling };
   } else {
+    // Either explicit deadline, OR negotiation broke down under tribunal_mode=none
+    // (parties opted out of the jury failsafe at open).
     bundleOutcome = { kind: "deadline" };
   }
 
@@ -112,6 +121,7 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
       atlas: agents.atlas.did,
       tribunal: agents.tribunal.did,
     },
+    tribunal_mode,
     evidence: pool.signed,
     messages: result.value.history,
     outcome: bundleOutcome,

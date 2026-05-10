@@ -1,7 +1,7 @@
-import { signDoc, docHash } from "./sign.js";
-import type { AgentBook } from "./agents.js";
-import type { Evidence, SignedEvidence } from "./types.js";
-import type { Scenario } from "./scenarios/types.js";
+import { signDoc, docHash } from "./sign";
+import type { AgentBook } from "./agents";
+import type { Evidence, SignedEvidence } from "./types";
+import type { Scenario } from "./scenarios/types";
 
 export type EvidencePool = {
   signed: SignedEvidence[];

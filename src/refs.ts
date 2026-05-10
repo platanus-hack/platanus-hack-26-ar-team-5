@@ -18,8 +18,8 @@
  * The signed message ALWAYS carries the canonical sha256 form, so the
  * audit trail is preserved exactly as before.
  */
-import { docHash } from "./sign.js";
-import type { SignedEvidence, SignedMessage } from "./types.js";
+import { docHash } from "./sign";
+import type { SignedEvidence, SignedMessage } from "./types";
 
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 const MSG_REF_RE = /^m(\d+)$/i;

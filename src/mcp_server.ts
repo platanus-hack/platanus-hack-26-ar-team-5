@@ -15,19 +15,24 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runPacta, listScenarios, getScenario } from "./pacta.js";
-import { verifySignedDoc, docHash } from "./sign.js";
-import { hash as hashOf } from "./canonical.js";
+import { runPacta, listScenarios, getScenario } from "./pacta";
+import { verifySignedDoc, docHash } from "./sign";
+import { hash as hashOf } from "./canonical";
 import {
   openDispute,
   joinDispute,
   getDispute,
   dumpDispute,
   submitEvidence,
-} from "./dispute_store.js";
-import { submitExternalMessage, advanceClaudeTurns, publicState } from "./dispute_engine.js";
-import type { Bundle } from "./types.js";
-import type { MessageBody } from "./orchestrator.js";
+} from "./dispute_store";
+import {
+  submitExternalMessage,
+  advanceClaudeTurns,
+  publicState,
+  withdrawFromDispute,
+} from "./dispute_engine";
+import type { Bundle } from "./types";
+import type { MessageBody } from "./orchestrator";
 
 export function buildPactaMcpServer(): McpServer {
   const server = new McpServer(
@@ -365,15 +370,22 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
           .describe(
             "If true (REQUIRED for schema-less), the OTHER side must also be a real external agent. If false (default), Pacta drives the other side with Claude — only valid when scenario_id is provided (the scenario carries the system prompt).",
           ),
+        tribunal_mode: z
+          .enum(["binding", "none"])
+          .optional()
+          .describe(
+            "Pre-commit dispute-resolution mode. 'binding' (default) = if bilateral negotiation deadlocks, a 3-LLM Tribunal renders a signed Ruling that binds both parties (like an arbitration clause). 'none' = parties opt out: Escalate is rejected and max_rounds finalizes as deadline (no remedy, no winner). Either party can always Withdraw. The joiner sees this BEFORE deciding to claim a role.",
+          ),
       },
     },
-    async ({ claim, scenario_id, your_role, counterparty_external }) => {
+    async ({ claim, scenario_id, your_role, counterparty_external, tribunal_mode }) => {
       try {
         const result = await openDispute({
           claim,
           scenario_id,
           your_role,
           counterparty_external: counterparty_external === true,
+          tribunal_mode,
         });
         return {
           content: [
@@ -389,6 +401,7 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
                 `  your_token:           ${result.your_token}\n` +
                 `  counterparty_did:     ${result.counterparty_did}\n` +
                 `  counterparty_external: ${result.counterparty_external}\n` +
+                `  tribunal_mode:        ${result.tribunal_mode}\n` +
                 `  next_to_act:          ${result.next_to_act}\n` +
                 `  current_round:        ${result.current_round}\n\n` +
                 `--- DETAILS ---\n${JSON.stringify(result, null, 2)}`,
@@ -433,8 +446,15 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
                 `  your_did:          ${r.your_did}\n` +
                 `  your_token:        ${r.your_token}\n` +
                 `  counterparty_did:  ${r.counterparty_did}\n` +
+                `  tribunal_mode:     ${r.tribunal_mode}\n` +
                 `  next_to_act:       ${r.next_to_act}\n` +
                 `  current_round:     ${r.current_round}\n\n` +
+                (r.tribunal_mode === "none"
+                  ? `Heads-up: this dispute opted out of the Tribunal. ` +
+                    `If you can't converge bilaterally, there is no jury — ` +
+                    `Escalate is disabled and max_rounds will finalize as deadline. ` +
+                    `Either party can always call withdraw_dispute to exit.\n\n`
+                  : ``) +
                 `--- DETAILS ---\n${JSON.stringify(r, null, 2)}`,
             },
           ],
@@ -515,7 +535,10 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
         "Accept must target a real prior Propose/CounterPropose. CounterPropose / Critique / " +
         "Accept require non-empty parent_refs; Propose may be empty only at round 1. " +
         "Refs accept short forms — see evidence_refs / parent_refs descriptions. " +
-        "The signed message always carries canonical sha256, regardless of which form you submit.",
+        "The signed message always carries canonical sha256, regardless of which form you submit. " +
+        "Submitting type=Escalate immediately routes to the Tribunal jury (3 Claude jurors with " +
+        "fairness/efficiency/speed biases) and finalizes the dispute with a signed ruling bundle. " +
+        "The Escalate itself is signed into history first, so the audit trail records who triggered it.",
       inputSchema: {
         dispute_id: z.string(),
         role_token: z.string().describe("The token returned by open_dispute for your role."),
@@ -683,6 +706,55 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
                 `wait_for_turn timeout (kind=timeout). Counterparty has not moved yet — ` +
                 `call this tool again to keep waiting. State is unchanged.\n\n` +
                 `--- HEARTBEAT ---\n${JSON.stringify(heartbeat, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { isError: true, content: [{ type: "text", text: (err as Error).message }] };
+      }
+    },
+  );
+
+  // ----- Phase 2: withdraw_dispute ------------------------------------------
+  server.registerTool(
+    "withdraw_dispute",
+    {
+      description:
+        "Unilaterally exit a Pacta dispute without remedy. Either party can call " +
+        "this at any time before the bundle is finalized — works under any " +
+        "tribunal_mode. Pacta signs a Withdraw message with your role's keypair " +
+        "and finalizes the bundle as outcome.kind='withdrawn', recording who " +
+        "walked and why. No tribunal, no winner, just a permanent on-record " +
+        "exit. Useful when (a) the counterparty isn't acting in good faith, " +
+        "(b) tribunal_mode='none' and you want to close cleanly instead of " +
+        "running out the clock, or (c) you want the audit trail to show the " +
+        "decision to leave was deliberate.",
+      inputSchema: {
+        dispute_id: z.string(),
+        role_token: z
+          .string()
+          .describe("The token returned by open_dispute / join_dispute for your role."),
+        reason: z
+          .string()
+          .optional()
+          .describe(
+            "Free-form explanation of why you're withdrawing. Recorded in the signed Withdraw message and visible in the audit bundle.",
+          ),
+      },
+    },
+    async ({ dispute_id, role_token, reason }) => {
+      try {
+        const r = await withdrawFromDispute({ dispute_id, role_token, reason });
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Dispute withdrawn.\n` +
+                `  dispute_id: ${dispute_id}\n` +
+                `  reason:     ${reason ?? "(none given)"}\n` +
+                `  finalized:  ${r.state.finalized}\n\n` +
+                `--- EVENTS ---\n${JSON.stringify(r.events, null, 2)}`,
             },
           ],
         };

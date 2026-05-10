@@ -1,10 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { LLMDriver, MessageBody } from "./orchestrator.js";
-import type { SignedEvidence, SignedMessage } from "./types.js";
-import { docHash } from "./sign.js";
-import { getClient, MODELS } from "./anthropic.js";
-import { TOOLS } from "./prompts.js";
-import type { Scenario } from "./scenarios/types.js";
+import type { LLMDriver, MessageBody } from "./orchestrator";
+import type { SignedEvidence, SignedMessage } from "./types";
+import { docHash } from "./sign";
+import { getClient, MODELS } from "./anthropic";
+import { TOOLS } from "./prompts";
+import type { Scenario } from "./scenarios/types";
 
 function evidenceCatalog(evidence: SignedEvidence[]): string {
   return evidence

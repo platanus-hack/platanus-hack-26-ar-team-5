@@ -36,7 +36,23 @@ export type MessageType =
   | "CounterPropose"
   | "Accept"
   | "Reveal"
-  | "Escalate";
+  | "Escalate"
+  | "Withdraw";
+
+/**
+ * How an unresolved dispute terminates.
+ *
+ * - `binding`: classic Pacta. If bilateral negotiation deadlocks or
+ *   max_rounds elapses, the 3-LLM Tribunal renders a signed Ruling that
+ *   binds both parties (like an arbitration clause).
+ * - `none`: parties refused to pre-commit to the Tribunal. Escalate is
+ *   rejected; max_rounds finalizes the bundle as `kind: "deadline"`
+ *   (no remedy, no winner). Either party can `Withdraw` at any time.
+ *
+ * Mode is fixed at open and cannot be changed mid-flight — the joiner sees
+ * it before deciding whether to claim their role.
+ */
+export type TribunalMode = "binding" | "none";
 
 type MessageBase = {
   msg_id: string;
@@ -97,13 +113,24 @@ export type EscalateMsg = MessageBase & {
   };
 };
 
+/** Unilateral exit. Either party can sign a Withdraw at any point —
+ *  finalizes the dispute with `outcome.kind="withdrawn"`. The audit trail
+ *  shows who walked and why. No tribunal, no remedy. */
+export type WithdrawMsg = MessageBase & {
+  type: "Withdraw";
+  payload: {
+    reason: string;
+  };
+};
+
 export type Message =
   | ProposeMsg
   | CounterProposeMsg
   | CritiqueMsg
   | AcceptMsg
   | RevealMsg
-  | EscalateMsg;
+  | EscalateMsg
+  | WithdrawMsg;
 
 export type SignedMessage = SignedDoc<Message>;
 
@@ -139,12 +166,21 @@ export type Bundle = {
   type: "Bundle";
   scenario: string;
   agents: { aria: string; atlas: string; tribunal: string }; // DIDs
+  /** Pre-committed dispute-resolution mode (set at open, immutable). */
+  tribunal_mode: TribunalMode;
   evidence: SignedEvidence[];
   messages: SignedMessage[];
   outcome:
     | { kind: "converged"; final_state: DealState; accepted_msg_hash: string }
     | { kind: "deadline" }
-    | { kind: "ruling"; votes: SignedVote[]; ruling: SignedRuling };
+    | { kind: "ruling"; votes: SignedVote[]; ruling: SignedRuling }
+    | {
+        kind: "withdrawn";
+        withdrawn_by: string; // DID of the party that walked
+        withdrawn_role: "aria" | "atlas";
+        withdraw_msg_hash: string;
+        reason: string;
+      };
   root_hash: string; // sha256 over the canonical bundle (excluding root_hash + root_hash_jcs)
   /** Canonical RFC 8785 JCS string of the bundle minus root_hash + root_hash_jcs.
    *  Hashing this string is byte-deterministic — verifiers should use it

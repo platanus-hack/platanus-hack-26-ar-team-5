@@ -32,6 +32,14 @@ const COMMON_REFS = {
   },
 } as const;
 
+const SUMMARY_FIELD = {
+  summary: {
+    type: "string",
+    description:
+      "REQUIRED. 2–4 word characterisation of THIS move for the dashboard / audit log. Examples: 'Demands full refund', 'Counters with $600', 'Cites force majeure', 'Escalates to tribunal', 'Accepts $600 deal'. Hard-capped at 60 chars. Keep it glanceable, not prose.",
+  },
+} as const;
+
 export const TOOLS = [
   {
     name: "propose",
@@ -41,6 +49,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         ...COMMON_REFS,
+        ...SUMMARY_FIELD,
         state: STATE_SCHEMA,
         rationale: {
           type: "string",
@@ -55,6 +64,7 @@ export const TOOLS = [
       required: [
         "evidence_refs",
         "parent_refs",
+        "summary",
         "state",
         "rationale",
         "utility_for_self",
@@ -68,6 +78,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         ...COMMON_REFS,
+        ...SUMMARY_FIELD,
         state: STATE_SCHEMA,
         rationale: { type: "string" },
         utility_for_self: { type: "number" },
@@ -75,6 +86,7 @@ export const TOOLS = [
       required: [
         "evidence_refs",
         "parent_refs",
+        "summary",
         "state",
         "rationale",
         "utility_for_self",
@@ -89,6 +101,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         ...COMMON_REFS,
+        ...SUMMARY_FIELD,
         target_msg_hash: {
           type: "string",
           description:
@@ -96,7 +109,7 @@ export const TOOLS = [
         },
         rationale: { type: "string" },
       },
-      required: ["evidence_refs", "parent_refs", "target_msg_hash", "rationale"],
+      required: ["evidence_refs", "parent_refs", "summary", "target_msg_hash", "rationale"],
     },
   },
   {
@@ -107,13 +120,14 @@ export const TOOLS = [
       type: "object",
       properties: {
         ...COMMON_REFS,
+        ...SUMMARY_FIELD,
         target_msg_hash: {
           type: "string",
           description:
             "Reference to the Propose/CounterPropose/Amend you accept — 'mN', msg_id, or sha256:... hash.",
         },
       },
-      required: ["evidence_refs", "parent_refs", "target_msg_hash"],
+      required: ["evidence_refs", "parent_refs", "summary", "target_msg_hash"],
     },
   },
   {
@@ -124,6 +138,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         ...COMMON_REFS,
+        ...SUMMARY_FIELD,
         domain: {
           type: "string",
           description:
@@ -131,7 +146,7 @@ export const TOOLS = [
         },
         information: { type: "string" },
       },
-      required: ["evidence_refs", "parent_refs", "domain", "information"],
+      required: ["evidence_refs", "parent_refs", "summary", "domain", "information"],
     },
   },
   {
@@ -141,13 +156,14 @@ export const TOOLS = [
       type: "object",
       properties: {
         ...COMMON_REFS,
+        ...SUMMARY_FIELD,
         reason: { type: "string" },
         requested_action: {
           type: "string",
           enum: ["mediator", "deadline_extension"],
         },
       },
-      required: ["evidence_refs", "parent_refs", "reason", "requested_action"],
+      required: ["evidence_refs", "parent_refs", "summary", "reason", "requested_action"],
     },
   },
   {
@@ -158,6 +174,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         ...COMMON_REFS,
+        ...SUMMARY_FIELD,
         key: {
           type: "string",
           description:
@@ -169,7 +186,7 @@ export const TOOLS = [
         },
         rationale: { type: "string" },
       },
-      required: ["evidence_refs", "parent_refs", "key", "value", "rationale"],
+      required: ["evidence_refs", "parent_refs", "summary", "key", "value", "rationale"],
     },
   },
 ] as const;

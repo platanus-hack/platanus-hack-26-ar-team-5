@@ -21,7 +21,7 @@ const ANON =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndubnBuY2t1dWJnZG5zZXh4cHpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzNjk1NjAsImV4cCI6MjA5Mzk0NTU2MH0.ifwRx8PZT1FiygdxejMxyH49aju69GaQ2nH7Txp6Y9A";
 const SERVICE =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndubnBuY2t1dWJnZG5zZXh4cHpxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODM2OTU2MCwiZXhwIjoyMDkzOTQ1NTYwfQ.CGMVEVdxAXlM088T6R7er39YUS_kv82_2c7stVOXX5s";
-const APP = "http://localhost:44323";
+const APP = "http://localhost:22231";
 const MCP_URL = `${APP}/api/mcp`;
 
 const stamp = Date.now();
@@ -167,6 +167,7 @@ async function main() {
     name: "open_dispute",
     arguments: {
       claim,
+      context_summary: "Final exam grade dispute",
       your_role: "aria",
       counterparty_external: true,
       max_rounds: 4,
@@ -180,7 +181,11 @@ async function main() {
   }
   const disputeId = openedState.dispute_id;
   const tokenA = openedState.your_token;
-  ok(`open_dispute → ${disputeId} (schema-less, claim=${claim.slice(0, 40)}…)`);
+  if (openedState.context_summary === "Final exam grade dispute") {
+    ok(`open_dispute → ${disputeId} (context_summary echoed)`);
+  } else {
+    bad("context_summary not echoed", JSON.stringify(openedState.context_summary));
+  }
 
   // ---------- 5b. Atlas joins ----------
   const joined = await b.client.callTool({
@@ -239,6 +244,7 @@ async function main() {
         from_agent: openedState.your_did,
         evidence_refs: [],
         parent_refs: [],
+        summary: "Demands 8/10 grade",
         payload: {
           state: { credit_usd: 0, terms: "Nota final: 8/10" },
           rationale: "Cumplo los tres bloques de la rúbrica con detalle.",
@@ -263,6 +269,7 @@ async function main() {
         from_agent: joinedState.your_did,
         evidence_refs: [],
         parent_refs: ["m1"],
+        summary: "Counters with 7/10",
         payload: {
           state: { credit_usd: 0, terms: "Nota final: 7/10" },
           rationale:
@@ -299,6 +306,7 @@ async function main() {
         from_agent: openedState.your_did,
         evidence_refs: [],
         parent_refs: ["m2"],
+        summary: "Accepts 7/10",
         payload: { target_msg_hash: "m2" },
       },
     },
@@ -324,6 +332,7 @@ async function main() {
         from_agent: joinedState.your_did,
         evidence_refs: [],
         parent_refs: ["m2"],
+        summary: "Confirms 7/10",
         payload: { target_msg_hash: "m2" },
       },
     },
@@ -363,6 +372,22 @@ async function main() {
     );
   } else {
     bad("bundle outcome", JSON.stringify(dumpJson.finalized));
+  }
+
+  // context_summary survives the dump round-trip
+  if (dumpJson.context_summary === "Final exam grade dispute") {
+    ok(`dump context_summary = "${dumpJson.context_summary}"`);
+  } else {
+    bad("context_summary missing in dump", JSON.stringify(dumpJson.context_summary));
+  }
+
+  // Each move's summary survives via history
+  const summaries = (dumpJson.history ?? []).map((m) => m.summary);
+  const expected = ["Demands 8/10 grade", "Counters with 7/10", "Accepts 7/10", "Confirms 7/10"];
+  if (summaries.length === expected.length && summaries.every((s, i) => s === expected[i])) {
+    ok(`per-move summaries round-trip via history: ${JSON.stringify(summaries)}`);
+  } else {
+    bad("per-move summaries", `got ${JSON.stringify(summaries)}, expected ${JSON.stringify(expected)}`);
   }
 
   // ---------- 9. Usage events for both users ----------

@@ -59,6 +59,7 @@ describe("CAS atomicity (mocked)", () => {
     const { saveDispute, StaleVersionError } = await import("../src/storage.js");
 
     const opened = await openDispute({
+      context_summary: "Test dispute",
       claim: "concurrent-saves",
       your_role: "aria",
       counterparty_external: true,

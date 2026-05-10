@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import type {
   AgentRole,
   DisputeDump,
@@ -238,29 +240,13 @@ export function DagGraph({ dispute, bare = false }: Props) {
   return (
     <Wrapper className={wrapperClass}>
       {!bare && (
-        <div className="flex flex-col gap-3 border-b border-line/70 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="text-body font-medium text-polar-white">
-            Audit DAG
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-bone">
-            {(
-              [
-                "Propose",
-                "CounterPropose",
-                "Reveal",
-                "Accept",
-                "Critique",
-                "Escalate",
-                "Withdraw",
-              ] as const
-            ).map((t) => (
-              <Legend key={t} label={TYPE_INFO[t].label} color={TYPE_INFO[t].color} />
-            ))}
-            {showTribunal && <Legend label="Vote" color={RULING_COLOR} />}
-            {showTribunal && <Legend label="Ruling" color={RULING_COLOR} ringed />}
-            {finalized && <Legend label="Root" color="#E7C59A" outline />}
-          </div>
-        </div>
+        <LegendArea
+          finalized={finalized}
+          showTribunal={showTribunal}
+          presentTypes={
+            new Set(dispute.history.map((m) => TYPE_INFO[m.type].label))
+          }
+        />
       )}
 
       {msgNodes.length === 0 ? (
@@ -616,31 +602,164 @@ function RootNode({ cx, cy }: { cx: number; cy: number }) {
   );
 }
 
-function Legend({
-  label,
-  color,
-  outline = false,
-  ringed = false,
-}: {
+type LegendItem = {
   label: string;
   color: string;
   outline?: boolean;
   ringed?: boolean;
+  description: string;
+};
+
+const LEGEND_DESCRIPTIONS: Record<string, string> = {
+  Propose: "Offers a candidate state and a utility number.",
+  CounterPropose: "Rejects the current state and offers an alternative.",
+  Critique: "Challenges a prior message with cited evidence.",
+  Reveal: "Discloses private information. Binding from here on.",
+  Accept:
+    "Signs the current state. When both sides Accept the same target the dispute converges.",
+  Escalate: "Hands the deadlock to the 3-LLM tribunal.",
+  Withdraw:
+    "Unilateral exit. Records who walked, why, at what round. No remedy.",
+  Vote: "One juror's signed verdict + confidence on a ruling.",
+  Ruling:
+    "Confidence-weighted aggregate of the three jurors. The bound remedy.",
+  Root: "sha256 of the canonical bundle bytes — what verifiers re-hash offline.",
+};
+
+function LegendArea({
+  finalized,
+  showTribunal,
+  presentTypes,
+}: {
+  finalized: boolean;
+  showTribunal: boolean;
+  /** Set of message-type labels (from TYPE_INFO[t].label) actually rendered
+   *  in the graph. Used to hide legend chips for primitives this dispute
+   *  never used — explaining "Withdraw" makes no sense if no one withdrew. */
+  presentTypes: Set<string>;
+}) {
+  const [active, setActive] = useState<string | null>(null);
+
+  const allTypes: Array<DumpMessage["type"]> = [
+    "Propose",
+    "CounterPropose",
+    "Reveal",
+    "Accept",
+    "Critique",
+    "Escalate",
+    "Withdraw",
+  ];
+  const items: LegendItem[] = allTypes
+    .filter((t) => presentTypes.has(TYPE_INFO[t].label))
+    .map((t) => ({
+      label: TYPE_INFO[t].label,
+      color: TYPE_INFO[t].color,
+      description: LEGEND_DESCRIPTIONS[t]!,
+    }));
+  if (showTribunal) {
+    items.push({
+      label: "Vote",
+      color: RULING_COLOR,
+      description: LEGEND_DESCRIPTIONS.Vote!,
+    });
+    items.push({
+      label: "Ruling",
+      color: RULING_COLOR,
+      ringed: true,
+      description: LEGEND_DESCRIPTIONS.Ruling!,
+    });
+  }
+  if (finalized) {
+    items.push({
+      label: "Root",
+      color: "#E7C59A",
+      outline: true,
+      description: LEGEND_DESCRIPTIONS.Root!,
+    });
+  }
+
+  return (
+    <div className="border-b border-line/70 px-4 py-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="text-body font-medium text-polar-white">Audit DAG</div>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          {items.map((item) => (
+            <LegendButton
+              key={item.label}
+              item={item}
+              active={active === item.label}
+              onClick={() =>
+                setActive(active === item.label ? null : item.label)
+              }
+            />
+          ))}
+        </div>
+      </div>
+      <AnimatePresence initial={false}>
+        {(() => {
+          if (!active) return null;
+          const found = items.find((i) => i.label === active);
+          if (!found) return null;
+          return (
+            <motion.div
+              key={active}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <p className="pt-3 text-caption text-ash-gray">
+                <span className="text-polar-white">{active}</span> ·{" "}
+                {found.description}
+              </p>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function LegendButton({
+  item,
+  active,
+  onClick,
+}: {
+  item: LegendItem;
+  active: boolean;
+  onClick: () => void;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 t-body">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-caption transition-colors ${
+        active
+          ? "bg-iron text-polar-white"
+          : "text-ash-gray hover:bg-iron/60 hover:text-bone"
+      }`}
+    >
       <span
+        aria-hidden="true"
         className="h-2.5 w-2.5 rounded-full"
         style={
-          outline
-            ? { background: "transparent", boxShadow: `inset 0 0 0 1.5px ${color}` }
-            : ringed
-              ? { background: color, boxShadow: `0 0 0 2px ${color}40` }
-              : { background: color }
+          item.outline
+            ? {
+                background: "transparent",
+                boxShadow: `inset 0 0 0 1.5px ${item.color}`,
+              }
+            : item.ringed
+              ? {
+                  background: item.color,
+                  boxShadow: `0 0 0 2px ${item.color}40`,
+                }
+              : { background: item.color }
         }
       />
-      {label}
-    </span>
+      {item.label}
+    </button>
   );
 }
 

@@ -42,7 +42,8 @@ describe("protocol hardening (mocked)", () => {
       const { StaleVersionError } = await import("../src/storage.js");
 
       const opener = await openDispute({
-        claim: "CAS test.",
+        context_summary: "Test dispute",
+      claim: "CAS test.",
         your_role: "aria",
         counterparty_external: true,
         max_rounds: 5,
@@ -68,7 +69,8 @@ describe("protocol hardening (mocked)", () => {
       );
 
       const real = await openDispute({
-        claim: "real opener test",
+        context_summary: "Test dispute",
+      claim: "real opener test",
         your_role: "atlas",
         counterparty_external: true,
         tribunal_mode: "none",
@@ -93,7 +95,8 @@ describe("protocol hardening (mocked)", () => {
       const { withdrawFromDispute } = await import("../src/dispute_engine.js");
 
       const opener = await openDispute({
-        claim: "early-walk test",
+        context_summary: "Test dispute",
+      claim: "early-walk test",
         your_role: "aria",
         counterparty_external: true,
         tribunal_mode: "binding",
@@ -118,7 +121,8 @@ describe("protocol hardening (mocked)", () => {
       );
 
       const opener = await openDispute({
-        claim: "binding-cant-be-escaped test",
+        context_summary: "Test dispute",
+      claim: "binding-cant-be-escaped test",
         your_role: "aria",
         counterparty_external: true,
         tribunal_mode: "binding",
@@ -134,6 +138,7 @@ describe("protocol hardening (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -151,6 +156,7 @@ describe("protocol hardening (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "CounterPropose",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],
@@ -195,7 +201,8 @@ describe("protocol hardening (mocked)", () => {
       );
 
       const opener = await openDispute({
-        claim: "none-mode walk-anytime test",
+        context_summary: "Test dispute",
+      claim: "none-mode walk-anytime test",
         your_role: "aria",
         counterparty_external: true,
         tribunal_mode: "none",
@@ -210,6 +217,7 @@ describe("protocol hardening (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -226,6 +234,7 @@ describe("protocol hardening (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "CounterPropose",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],
@@ -254,7 +263,8 @@ describe("protocol hardening (mocked)", () => {
       const { submitExternalMessage } = await import("../src/dispute_engine.js");
 
       const opener = await openDispute({
-        claim: "no-tribunal blocks Escalate",
+        context_summary: "Test dispute",
+      claim: "no-tribunal blocks Escalate",
         your_role: "aria",
         counterparty_external: true,
         tribunal_mode: "none",
@@ -269,6 +279,7 @@ describe("protocol hardening (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -285,6 +296,7 @@ describe("protocol hardening (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "Escalate",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],

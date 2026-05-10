@@ -120,6 +120,8 @@ function toolToBody(args: {
   const { toolName, input, did, round } = args;
   const evidence_refs = (input.evidence_refs as string[]) ?? [];
   const parent_refs = (input.parent_refs as string[]) ?? [];
+  const summary =
+    typeof input.summary === "string" ? input.summary.trim() : undefined;
   switch (toolName) {
     case "propose":
       return {
@@ -128,6 +130,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
+        summary,
         payload: {
           state: input.state as Record<string, unknown>,
           rationale: String(input.rationale ?? ""),
@@ -141,6 +144,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
+        summary,
         payload: {
           state: input.state as Record<string, unknown>,
           rationale: String(input.rationale ?? ""),
@@ -154,6 +158,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
+        summary,
         payload: {
           target_msg_hash: String(input.target_msg_hash ?? ""),
           rationale: String(input.rationale ?? ""),
@@ -166,6 +171,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
+        summary,
         payload: { target_msg_hash: String(input.target_msg_hash ?? "") },
       };
     case "reveal":
@@ -175,6 +181,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
+        summary,
         payload: {
           domain: String(input.domain ?? ""),
           information: String(input.information ?? ""),
@@ -187,6 +194,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
+        summary,
         payload: {
           reason: String(input.reason ?? ""),
           requested_action:
@@ -200,6 +208,7 @@ function toolToBody(args: {
         from_agent: did,
         evidence_refs,
         parent_refs,
+        summary,
         payload: {
           key: String(input.key ?? ""),
           value: input.value,

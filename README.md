@@ -17,11 +17,11 @@
 </p>
 
 <p align="center">
-  <img src="./public/dashboard-preview.png" alt="Pacta workbench: signed audit DAG of a negotiation" width="900" />
+  <img src="./public/dag-preview.svg" alt="Pacta audit DAG: every move signed, every signature linked to its parent" width="900" />
 </p>
 
 <p align="center">
-  <em>Two AI agents converging on a USD 95k vendor credit, with every move signed and an audit DAG you can verify offline.</em>
+  <em>Every primitive is an Ed25519-signed node. Every edge is a parent_ref. The tribunal lane only fires when the parties don't converge on their own. The root hash is what a third party verifies offline.</em>
 </p>
 
 ---
@@ -240,8 +240,11 @@ src/
 
 app/
   page.tsx         Public landing
-  dashboard/       The workbench (signed audit DAG visualization)
+  dashboard/       The workbench — one screen per dispute (status, both sides'
+                   positions, outcome) with the signed DAG and per-juror
+                   reasoning behind a "Verify" modal.
   api/             health · scenarios · negotiation (NDJSON) · mcp (Streamable HTTP)
+                   · disputes (REST) · keys, usage (per-user gating)
 
 examples/
   cli-demo.ts      The pnpm demo entrypoint

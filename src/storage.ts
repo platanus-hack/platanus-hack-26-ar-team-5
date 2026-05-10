@@ -42,6 +42,12 @@ export type StoredDispute = {
   /** Free-form description of the dispute supplied by the opener. The agents'
    *  positions, evidence and arguments come from them, not from us. */
   claim: string | null;
+  /** ~5-word headline of what's being disputed. Set at open and immutable.
+   *  This is what the dashboard surfaces as the at-a-glance label — `claim`
+   *  may be a full paragraph that nobody reads in 5 seconds. Optional for
+   *  backwards compatibility with disputes opened before the field existed
+   *  (they fall back to scenario_id or a truncated claim). */
+  context_summary?: string | null;
   /** Optional template id — only set when this dispute was opened from one of
    *  our bundled scenario templates. Schema-less disputes leave this null. */
   scenario_id: string | null;
@@ -391,6 +397,7 @@ export async function saveDispute(live: LiveDispute): Promise<void> {
   const stored: StoredDispute = {
     dispute_id: live.dispute_id,
     claim: live.claim,
+    context_summary: live.context_summary ?? null,
     scenario_id: live.scenario_id,
     signed_evidence: live.evidence.signed,
     history: live.history,

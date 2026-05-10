@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DisputeDump, TribunalMode } from "./types";
 import { Sidebar } from "./sidebar";
-import { EvidenceRail } from "./evidence-rail";
-import { OutcomeBanner } from "./outcome-banner";
-import { DisputeFlow } from "./dispute-flow";
-import { DisputeHero } from "./dispute-hero";
+import { DisputeView } from "./dispute-view";
+import { DagGraph } from "./dag-graph";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -133,30 +131,6 @@ export function Console() {
     [],
   );
 
-  const withdraw = useCallback(
-    async (dispute_id: string, role: "aria" | "atlas", reason: string) => {
-      setError(null);
-      try {
-        const r = await fetch(
-          `/api/disputes/${encodeURIComponent(dispute_id)}/withdraw`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ role, reason }),
-          },
-        );
-        if (!r.ok) {
-          const j = (await r.json().catch(() => ({}))) as { error?: string };
-          throw new Error(j.error ?? `HTTP ${r.status}`);
-        }
-        setRefreshSignal((s) => s + 1);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [],
-  );
-
   return (
     <div className="flex min-h-screen flex-col bg-deep-space text-polar-white lg:flex-row">
       <Sidebar
@@ -176,38 +150,14 @@ export function Console() {
           {!selectedId && <EmptyState seeding={seeding} />}
           {selectedId && !dispute && <LoadingDispute />}
           {dispute && (
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
-              <DisputeHero dispute={dispute} onWithdraw={withdraw} />
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-                <DisputeFlow dispute={dispute} />
-                <EvidenceRail dispute={dispute} />
-              </div>
-              {dispute.finalized && <OutcomeBanner dispute={dispute} />}
-              {dispute.pending_feedback.length > 0 && !dispute.finalized && (
-                <FeedbackPanel feedback={dispute.pending_feedback} />
-              )}
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+              <DisputeView dispute={dispute} />
+              <DagGraph dispute={dispute} />
             </div>
           )}
         </div>
       </main>
     </div>
-  );
-}
-
-function FeedbackPanel({ feedback }: { feedback: string[] }) {
-  return (
-    <section className="rounded-lg border border-warn-red/30 bg-graphite/50">
-      <div className="border-b border-warn-red/20 bg-warn-red/5 px-4 py-2.5 text-micro uppercase tracking-[0.2em] text-warn-red">
-        Pending validator feedback
-      </div>
-      <ul className="divide-y divide-line/50">
-        {feedback.map((f, i) => (
-          <li key={i} className="px-4 py-2.5 font-mono text-caption text-bone">
-            {f}
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

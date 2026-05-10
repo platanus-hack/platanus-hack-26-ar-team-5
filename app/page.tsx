@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Github } from "lucide-react";
 import { codeToHtml } from "shiki";
@@ -115,9 +114,10 @@ export default async function LandingPage() {
     <main className="min-h-screen bg-[#0c0c0c] text-white">
       <Nav />
       <Hero />
-      <DashboardPreview />
+      <Explainer />
       <StackSection />
       <CodeSection samples={samples} />
+      <FlowsSection />
       <Primitives />
       <Tiers />
       <Composes />
@@ -215,32 +215,330 @@ function Hero() {
   );
 }
 
-function DashboardPreview() {
+function Explainer() {
+  const steps: Array<{ title: string; body: string }> = [
+    {
+      title: "They open a dispute",
+      body: "Two AI agents take opposite sides of a free-form claim. Each one gets a signing key and a turn to act.",
+    },
+    {
+      title: "They exchange signed offers",
+      body: "Propose, Counter, Critique, Reveal — every move is Ed25519-signed and cites the prior moves and evidence it leans on.",
+    },
+    {
+      title: "They converge — or escalate",
+      body: "If both sides Accept the same target the deal is done. If they deadlock, a 3-LLM tribunal arbitrates. Either way the output is a content-addressed bundle anyone can re-verify offline.",
+    },
+  ];
   return (
     <section className="mx-auto max-w-5xl px-6 pb-24">
-      <Link
-        href="/dashboard"
-        className="group relative block overflow-hidden rounded-lg border border-white/10 bg-[#0a0c10]"
-      >
-        <Image
-          src="/dashboard-preview.png"
-          alt="Pacta workbench. Signed audit DAG of a negotiation"
-          width={1280}
-          height={720}
-          priority
-          className="block h-auto w-full"
+      <SectionHeader
+        eyebrow="How it works"
+        title="Negotiation, evidence, and a verdict — all signed end to end."
+      />
+      <ol className="mt-12 grid gap-px overflow-hidden rounded-md border border-white/[0.08] bg-white/[0.06] md:grid-cols-3">
+        {steps.map((s, i) => (
+          <li key={s.title} className="flex flex-col gap-3 bg-[#0c0c0c] p-6">
+            <span className="t-body font-mono uppercase tracking-[0.18em] text-white/35">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <p className="t-label text-white">{s.title}</p>
+            <p className="t-body leading-[20px] text-white/55">{s.body}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function FlowsSection() {
+  return (
+    <section className="mx-auto max-w-5xl border-t border-white/[0.06] px-6 py-20">
+      <SectionHeader
+        eyebrow="Two paths to a signed bundle"
+        title="Either they agree, or the tribunal decides. Both produce the same artifact."
+      />
+      <div className="mt-12 grid gap-4 lg:grid-cols-2">
+        <FlowCard
+          eyebrow="Convergence"
+          title="They iterate until both sign the same target."
+          subtitle="No tribunal needed. Cheapest path."
+          svg={<ConvergedDag />}
         />
-        <span className="absolute inset-0 flex items-end justify-end p-4 opacity-0 transition group-hover:opacity-100">
-          <span className="t-label rounded-full bg-white px-3.5 py-1.5 text-black">
-            Open workbench →
-          </span>
-        </span>
-      </Link>
-      <p className="t-body mt-3 text-white/40">
-        Every primitive is a signed node. Evidence attaches with a tier label.
-        The root hash is the proof other systems verify.
+        <FlowCard
+          eyebrow="Tribunal"
+          title="They deadlock, the tribunal rules."
+          subtitle="3 heterogeneous LLMs vote. The aggregate is binding."
+          svg={<TribunalDag />}
+        />
+      </div>
+      <p className="t-body mt-6 text-white/40">
+        Each circle is an Ed25519-signed primitive. Lines are{" "}
+        <span className="font-mono text-white/65">parent_refs</span> — every
+        node cites the prior moves it depends on. A third party re-verifies the
+        whole graph offline with{" "}
+        <span className="font-mono text-white/65">pnpm verify</span>.
       </p>
     </section>
+  );
+}
+
+function FlowCard({
+  eyebrow,
+  title,
+  subtitle,
+  svg,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  svg: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0a0c10]">
+      <div className="border-b border-white/[0.06] px-5 py-4">
+        <p className="t-body uppercase tracking-[0.18em] text-white/35">
+          {eyebrow}
+        </p>
+        <p className="mt-1 t-label text-white">{title}</p>
+        <p className="mt-1 t-body text-white/45">{subtitle}</p>
+      </div>
+      <div className="overflow-x-auto px-3 py-5">{svg}</div>
+    </div>
+  );
+}
+
+function ConvergedDag() {
+  return (
+    <svg
+      viewBox="0 0 460 230"
+      className="block h-auto w-full min-w-[400px]"
+      role="img"
+      aria-label="Convergence flow: Aria proposes, Atlas counters, both Accept the same target, root hash."
+    >
+      {/* lane separators */}
+      {[30, 110, 190].map((y) => (
+        <line
+          key={y}
+          x1={120}
+          x2={460}
+          y1={y}
+          y2={y}
+          stroke="rgba(255,255,255,0.05)"
+          strokeWidth="1"
+        />
+      ))}
+
+      <FlowLane y={70} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
+      <FlowLane y={150} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
+
+      {/* edges */}
+      <DagEdge d="M 175 70 C 210 70, 210 150, 245 150" />
+      <DagEdge d="M 265 150 C 290 150, 290 70, 315 70" />
+      <DagEdge d="M 335 70 L 405 70" tone="root" />
+      <DagEdge d="M 265 150 C 320 150, 360 110, 395 80" tone="root" />
+
+      <DagNode cx={155} cy={70} fill="#A4F4FD" icon="·" label="Propose" caption="m1 · $1,200" />
+      <DagNode cx={245} cy={150} fill="#7AA2F7" icon="↺" label="Counter" caption="m2 · $900" />
+      <DagNode cx={335} cy={70} fill="#E7C59A" icon="✓" label="Accept" caption="m3 · target m2" ringed />
+      <DagNode
+        cx={420}
+        cy={70}
+        fill="transparent"
+        outline="#ffffff"
+        icon="⚿"
+        label="Root"
+        caption="sha256:6f1c…"
+      />
+    </svg>
+  );
+}
+
+function TribunalDag() {
+  return (
+    <svg
+      viewBox="0 0 460 280"
+      className="block h-auto w-full min-w-[400px]"
+      role="img"
+      aria-label="Tribunal flow: parties deadlock, three LLM jurors vote, ruling, root hash."
+    >
+      {[30, 90, 160, 240].map((y) => (
+        <line
+          key={y}
+          x1={120}
+          x2={460}
+          y1={y}
+          y2={y}
+          stroke="rgba(255,255,255,0.05)"
+          strokeWidth="1"
+        />
+      ))}
+
+      <FlowLane y={60} eyebrow="Claimant" name="Aria" color="rgba(231,197,154,0.85)" />
+      <FlowLane y={125} eyebrow="Respondent" name="Atlas" color="rgba(122,162,247,0.85)" />
+      <FlowLane y={195} eyebrow="Arbiter" name="Tribunal" color="rgba(192,132,252,0.85)" />
+
+      <DagEdge d="M 165 60 C 195 60, 195 125, 220 125" />
+      <DagEdge d="M 240 125 C 265 125, 265 60, 290 60" />
+      <DagEdge d="M 310 60 C 330 60, 330 195, 355 195" tone="tribunal" />
+      <DagEdge d="M 290 60 C 200 60, 200 195, 195 195" tone="tribunal" />
+      <DagEdge d="M 290 60 C 240 60, 240 195, 275 195" tone="tribunal" />
+      <DagEdge d="M 215 195 L 380 195" tone="tribunal" />
+      <DagEdge d="M 290 195 L 380 195" tone="tribunal" />
+      <DagEdge d="M 380 195 L 425 195" tone="root" />
+
+      <DagNode cx={145} cy={60} fill="#A4F4FD" icon="·" label="Propose" caption="m1 · $1,800" />
+      <DagNode cx={220} cy={125} fill="#7AA2F7" icon="↺" label="Counter" caption="m2 · $600" />
+      <DagNode cx={290} cy={60} fill="#FF7A59" icon="↗" label="Escalate" caption="m3" />
+      <DagNode cx={195} cy={195} fill="#C084FC" icon="⚖" label="Aequitas" caption="72%" />
+      <DagNode cx={275} cy={195} fill="#C084FC" icon="⚖" label="Utilis" caption="78%" />
+      <DagNode cx={355} cy={195} fill="#C084FC" icon="⚖" label="Velox" caption="82%" />
+      <DagNode cx={395} cy={195} fill="#C084FC" icon="§" label="Ruling" caption="$600 · partial" ringed />
+      <DagNode
+        cx={440}
+        cy={195}
+        fill="transparent"
+        outline="#ffffff"
+        icon="⚿"
+        label="Root"
+        caption="sha256:84…"
+      />
+    </svg>
+  );
+}
+
+function FlowLane({
+  y,
+  eyebrow,
+  name,
+  color,
+}: {
+  y: number;
+  eyebrow: string;
+  name: string;
+  color: string;
+}) {
+  return (
+    <g>
+      <text
+        x={20}
+        y={y - 8}
+        fontSize="9"
+        fontWeight="500"
+        letterSpacing="0.18em"
+        fill={color}
+      >
+        {eyebrow.toUpperCase()}
+      </text>
+      <text
+        x={20}
+        y={y + 8}
+        fontSize="12"
+        fontWeight="500"
+        fill="rgba(255,255,255,0.9)"
+      >
+        {name}
+      </text>
+    </g>
+  );
+}
+
+function DagEdge({
+  d,
+  tone = "default",
+}: {
+  d: string;
+  tone?: "default" | "tribunal" | "root";
+}) {
+  const stroke =
+    tone === "default"
+      ? "rgba(255,255,255,0.18)"
+      : tone === "tribunal"
+        ? "rgba(192,132,252,0.35)"
+        : "rgba(231,197,154,0.5)";
+  const dash = tone === "root" ? "3 3" : undefined;
+  return (
+    <path
+      d={d}
+      fill="none"
+      stroke={stroke}
+      strokeWidth="1.5"
+      strokeDasharray={dash}
+    />
+  );
+}
+
+function DagNode({
+  cx,
+  cy,
+  fill,
+  outline,
+  icon,
+  label,
+  caption,
+  ringed,
+}: {
+  cx: number;
+  cy: number;
+  fill: string;
+  outline?: string;
+  icon: string;
+  label: string;
+  caption?: string;
+  ringed?: boolean;
+}) {
+  const isOpen = fill === "transparent";
+  return (
+    <g>
+      {ringed && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={22}
+          fill="none"
+          stroke={fill}
+          strokeOpacity="0.35"
+        />
+      )}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={15}
+        fill={fill}
+        stroke={outline ?? fill}
+        strokeWidth={isOpen ? 1.5 : 0}
+      />
+      <text
+        x={cx}
+        y={cy + 4}
+        textAnchor="middle"
+        fontSize="12"
+        fontWeight="600"
+        fill={isOpen ? outline : "#0c0c0c"}
+      >
+        {icon}
+      </text>
+      <text
+        x={cx}
+        y={cy + 32}
+        textAnchor="middle"
+        fontSize="11"
+        fill="rgba(255,255,255,0.78)"
+      >
+        {label}
+      </text>
+      {caption && (
+        <text
+          x={cx}
+          y={cy + 46}
+          textAnchor="middle"
+          fontSize="10"
+          fill="rgba(255,255,255,0.4)"
+        >
+          {caption}
+        </text>
+      )}
+    </g>
   );
 }
 

@@ -16,7 +16,8 @@ describe.skipIf(!HAS_KEY)("party-driven Escalate (live jury)", () => {
       // Both sides external, max_rounds=5. Schema-less so no scenario template
       // drives the moves — we drive them directly.
       const opener = await openDispute({
-        claim:
+        context_summary: "Test dispute",
+      claim:
           "Live escalation routing test: aria opens a low offer, atlas escalates instead of negotiating.",
         your_role: "aria",
         counterparty_external: true,
@@ -33,6 +34,7 @@ describe.skipIf(!HAS_KEY)("party-driven Escalate (live jury)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -53,6 +55,7 @@ describe.skipIf(!HAS_KEY)("party-driven Escalate (live jury)", () => {
         role_token: joiner.your_token,
         body: {
           type: "Escalate",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],

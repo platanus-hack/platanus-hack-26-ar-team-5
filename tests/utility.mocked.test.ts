@@ -236,6 +236,7 @@ function ariaPropose(args: {
 }): MessageBody {
   return {
     type: "Propose",
+          summary: "test move",
     round: args.round,
     from_agent: args.ariaDid,
     evidence_refs: args.evidence,
@@ -258,6 +259,7 @@ function ariaCounter(args: {
 }): MessageBody {
   return {
     type: "CounterPropose",
+          summary: "test move",
     round: args.round,
     from_agent: args.ariaDid,
     evidence_refs: args.evidence,
@@ -280,6 +282,7 @@ function atlasCounter(args: {
 }): MessageBody {
   return {
     type: "CounterPropose",
+          summary: "test move",
     round: args.round,
     from_agent: args.atlasDid,
     evidence_refs: args.evidence,

@@ -164,13 +164,24 @@ function buildRows(d: DisputeDump): Row[] {
   let lastAtlasNumber: number | null = null;
   let gapEmittedFor: string | null = null;
 
+  // The author's `summary` (if provided) is what to surface — it's the move's
+  // own self-described label. Fall back to the auto-derived phrase if absent.
+  const headlineWith = (
+    m: { summary?: string },
+    r: AgentRole,
+    auto: string,
+  ) => {
+    const s = m.summary?.trim();
+    return s ? `${cap(r)} · ${s}` : auto;
+  };
+
   for (const m of d.history) {
     const role: AgentRole =
       m.from_agent === d.agents.aria ? "aria" : "atlas";
 
     if (m.type === "Propose" || m.type === "CounterPropose") {
       const offer = extractOffer((m as DumpProposeMsg).payload.state);
-      const headline = phraseProposal({
+      const auto = phraseProposal({
         role,
         type: m.type,
         offer,
@@ -179,7 +190,7 @@ function buildRows(d: DisputeDump): Row[] {
       rows.push({
         kind: "move",
         tone: role,
-        headline,
+        headline: headlineWith(m, role, auto),
         body: snippet((m as DumpProposeMsg).payload.rationale),
       });
       if (role === "aria") ariaOpened = true;
@@ -207,7 +218,7 @@ function buildRows(d: DisputeDump): Row[] {
       rows.push({
         kind: "move",
         tone: role,
-        headline: `${cap(role)} pushed back.`,
+        headline: headlineWith(m, role, `${cap(role)} pushed back.`),
         body: snippet(
           "rationale" in m.payload ? String(m.payload.rationale) : null,
         ),
@@ -219,7 +230,11 @@ function buildRows(d: DisputeDump): Row[] {
       rows.push({
         kind: "move",
         tone: role,
-        headline: `${cap(role)} disclosed something binding.`,
+        headline: headlineWith(
+          m,
+          role,
+          `${cap(role)} disclosed something binding.`,
+        ),
         body: snippet(
           "information" in m.payload ? String(m.payload.information) : null,
         ),
@@ -231,7 +246,7 @@ function buildRows(d: DisputeDump): Row[] {
       rows.push({
         kind: "move",
         tone: role,
-        headline: `${cap(role)} agreed.`,
+        headline: headlineWith(m, role, `${cap(role)} agreed.`),
         body: null,
       });
       continue;
@@ -241,7 +256,11 @@ function buildRows(d: DisputeDump): Row[] {
       rows.push({
         kind: "move",
         tone: role,
-        headline: `${cap(role)} escalated to the tribunal.`,
+        headline: headlineWith(
+          m,
+          role,
+          `${cap(role)} escalated to the tribunal.`,
+        ),
         body: snippet(
           "reason" in m.payload ? String(m.payload.reason) : null,
         ),
@@ -253,7 +272,7 @@ function buildRows(d: DisputeDump): Row[] {
       rows.push({
         kind: "move",
         tone: role,
-        headline: `${cap(role)} walked away.`,
+        headline: headlineWith(m, role, `${cap(role)} walked away.`),
         body: snippet(
           "reason" in m.payload ? String(m.payload.reason) : null,
         ),

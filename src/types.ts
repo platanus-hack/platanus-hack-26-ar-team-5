@@ -79,6 +79,12 @@ type MessageBase = {
   timestamp: string; // ISO
   evidence_refs: string[]; // sha256:... hashes pointing into the evidence pool
   parent_refs: string[]; // sha256:... hashes of prior messages this attaches to
+  /** Optional 2–4 word characterisation of the move, used as a glanceable
+   *  label in dashboards and audit summaries. NOT a substitute for the move's
+   *  rationale/payload — those are still the source of truth that a
+   *  counterparty (or the tribunal) reads to decide. Length-capped server-side
+   *  so authors can't hide an essay here. */
+  summary?: string;
 };
 
 export type ProposeMsg = MessageBase & {

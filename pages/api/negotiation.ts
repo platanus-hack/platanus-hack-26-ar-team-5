@@ -1,9 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { runPacta, listScenarios } from "../../src/pacta";
+import { withApiAuthPagesRouter } from "../../lib/auth/api-auth";
 
 export const config = { maxDuration: 60 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   const url = new URL(req.url ?? "/", "http://localhost");
   const body = (req.body ?? {}) as { mock?: boolean; scenario?: string };
 
@@ -46,3 +47,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.end();
   }
 }
+
+export default withApiAuthPagesRouter(handler, { allowSession: true });

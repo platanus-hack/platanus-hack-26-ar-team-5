@@ -1,17 +1,15 @@
 import { dumpDispute, deleteDispute } from "../../../../src/dispute_store";
+import { withApiAuthAppRouter } from "../../../../lib/auth/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export const GET = withApiAuthAppRouter<{ id: string }>(async (_req, ctx) => {
   const { id } = await ctx.params;
   try {
     const dump = await dumpDispute(id);
     return Response.json(dump, {
-      headers: { "Cache-Control": "no-store" },
+      headers: { "Cache-Control": "no-store", "X-Pacta-Dispute-Id": id },
     });
   } catch (err) {
     return Response.json(
@@ -19,13 +17,12 @@ export async function GET(
       { status: 404 },
     );
   }
-}
+}, { allowSession: true });
 
-export async function DELETE(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withApiAuthAppRouter<{ id: string }>(async (_req, ctx) => {
   const { id } = await ctx.params;
   await deleteDispute(id);
-  return Response.json({ ok: true });
-}
+  return Response.json({ ok: true }, {
+    headers: { "X-Pacta-Dispute-Id": id },
+  });
+}, { allowSession: true });

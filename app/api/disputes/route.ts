@@ -5,6 +5,7 @@ import {
 } from "../../../src/dispute_store";
 import { advanceClaudeTurns } from "../../../src/dispute_engine";
 import { listScenarios } from "../../../src/scenarios/index";
+import { withApiAuthAppRouter } from "../../../lib/auth/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,11 +13,11 @@ export const maxDuration = 300;
 
 const encoder = new TextEncoder();
 
-export async function GET() {
+export const GET = withApiAuthAppRouter(async () => {
   const summaries = await listDisputeSummaries();
   const scenarios = listScenarios();
   return Response.json({ disputes: summaries, scenarios });
-}
+}, { allowSession: true });
 
 /** POST /api/disputes — seed a demo dispute (both sides Claude-driven) and
  *  stream the engine events as NDJSON. The first line is always
@@ -26,7 +27,7 @@ export async function GET() {
  *  — state is persisted between every Claude turn, so observers polling
  *  GET /api/disputes/:id see progress in real time even if the stream
  *  consumer disconnects. */
-export async function POST(req: Request) {
+export const POST = withApiAuthAppRouter(async (req: Request) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json(
       {
@@ -107,4 +108,4 @@ export async function POST(req: Request) {
       "X-Pacta-Dispute-Id": dispute_id,
     },
   });
-}
+}, { allowSession: true });

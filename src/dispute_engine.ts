@@ -452,6 +452,7 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         evidence: state.evidence.signed,
         rejection_feedback:
           state.pending_feedback.length > 0 ? [...state.pending_feedback] : undefined,
+        dispute_id: state.dispute_id,
       });
       const r = applyAttempt(state, role, body, attempt);
       events.push(...r.events);

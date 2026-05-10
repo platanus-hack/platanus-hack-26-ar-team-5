@@ -33,6 +33,10 @@ export interface LLMDriver {
     evidence: SignedEvidence[];
     /** When non-empty, the previous attempt was rejected with these reasons. */
     rejection_feedback?: string[];
+    /** Dispute id, when the driver runs inside a persisted dispute. Used by
+     *  the Claude driver to attribute per-turn token spend to a specific
+     *  dispute via recordClaudeTurn. Absent for the CLI demo path. */
+    dispute_id?: string;
   }): Promise<MessageBody>;
 }
 

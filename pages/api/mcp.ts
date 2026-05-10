@@ -12,6 +12,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildPactaMcpServer } from "../../src/mcp_server";
+import { withApiAuthPagesRouter } from "../../lib/auth/api-auth";
 
 export const config = {
   api: {
@@ -20,19 +21,15 @@ export const config = {
   maxDuration: 60,
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   // CORS for browser-based MCP clients.
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version",
+    "Content-Type, Authorization, X-Pacta-Key, Mcp-Session-Id, Mcp-Protocol-Version",
   );
   res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id, Mcp-Protocol-Version");
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
-  }
 
   // Stateless transport — fresh per request. Matches Vercel serverless lifecycle.
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -45,3 +42,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     server.close().catch(() => {});
   }
 }
+
+export default withApiAuthPagesRouter(handler);

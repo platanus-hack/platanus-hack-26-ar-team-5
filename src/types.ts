@@ -3,6 +3,8 @@
  * The shape is the on-the-wire JSON we sign over (via JCS canonical bytes).
  */
 
+import type { Amendment } from "./state_schema";
+
 export type EvidenceTier = "S" | "A" | "B" | "C";
 
 export type Proof = {
@@ -25,9 +27,23 @@ export type Evidence = {
 };
 export type SignedEvidence = SignedDoc<Evidence>;
 
-export type DealState = {
-  credit_usd: number;
-  terms: string;
+/**
+ * Negotiation state. Shape is declared by the SCENARIO (see `state_schema.ts`)
+ * and validated by the orchestrator at sign-time. The protocol itself is
+ * domain-agnostic — `DealState` is a generic bag of fields. The schema embedded
+ * in the bundle tells a downstream auditor how to interpret these keys.
+ *
+ * Every state carries an `amendments[]` slot (possibly empty). Mid-flight
+ * extensions land here via Amend → Accept(counterparty), giving the protocol
+ * a structured way for parties to invent clauses the schema didn't anticipate
+ * without smuggling unknown keys into the signed payload.
+ *
+ * Legacy USD-credit scenarios use `{ credit_usd, terms, amendments }`.
+ * Oncology uses `{ coverage_envelope_usd, regimen, duration_months, stop_rules, amendments }`.
+ * Schema-less BYO disputes get a permissive default schema.
+ */
+export type DealState = Record<string, unknown> & {
+  amendments?: Amendment[];
 };
 
 export type MessageType =
@@ -37,7 +53,8 @@ export type MessageType =
   | "Accept"
   | "Reveal"
   | "Escalate"
-  | "Withdraw";
+  | "Withdraw"
+  | "Amend";
 
 /**
  * How an unresolved dispute terminates.
@@ -93,7 +110,7 @@ export type CritiqueMsg = MessageBase & {
 export type AcceptMsg = MessageBase & {
   type: "Accept";
   payload: {
-    target_msg_hash: string; // hash of the Propose/CounterPropose accepted
+    target_msg_hash: string; // hash of the Propose/CounterPropose/Amend accepted
   };
 };
 
@@ -123,6 +140,26 @@ export type WithdrawMsg = MessageBase & {
   };
 };
 
+/** Schema-extension primitive. Either party can propose a new clause
+ *  (a key + value the schema didn't anticipate). The amendment "applies"
+ *  only when the COUNTERPARTY signs an Accept on this AmendMsg's hash —
+ *  self-Accept doesn't count. Once applied, future Propose/CounterPropose
+ *  states are expected to include the clause in `state.amendments[]`.
+ *
+ *  The orchestrator records the application as an audit fact; it does not
+ *  silently mutate proposals. Agents declare their amendments[] explicitly. */
+export type AmendMsg = MessageBase & {
+  type: "Amend";
+  payload: {
+    /** Field name being introduced (must NOT collide with declared schema keys). */
+    key: string;
+    /** Free-form value associated with the new clause. */
+    value: unknown;
+    /** Why this clause matters. Goes into the audit trail. */
+    rationale: string;
+  };
+};
+
 export type Message =
   | ProposeMsg
   | CounterProposeMsg
@@ -130,7 +167,8 @@ export type Message =
   | AcceptMsg
   | RevealMsg
   | EscalateMsg
-  | WithdrawMsg;
+  | WithdrawMsg
+  | AmendMsg;
 
 export type SignedMessage = SignedDoc<Message>;
 
@@ -162,8 +200,26 @@ export type Ruling = {
 };
 export type SignedRuling = SignedDoc<Ruling>;
 
+/** Schema metadata embedded in the bundle. Lets a third-party auditor read
+ *  `final_state` / `remedy` without assuming USD or any other domain — the
+ *  shape is self-describing and cryptographically pinned via `ref`. */
+export type BundleStateSchema = {
+  /** sha256 over canonical JSON-Schema bytes. */
+  ref: string;
+  /** Short label, e.g. "USD-credit", "oncology-coverage". */
+  domain: string;
+  /** Human-readable one-line description. */
+  description: string;
+  /** Full JSON-Schema fragment for `state` / `remedy`. */
+  json_schema: Record<string, unknown>;
+};
+
 export type Bundle = {
   type: "Bundle";
+  /** Bundle format version. v1 = legacy (no state_schema); v2 = adds
+   *  embedded state_schema and Amend message support. Older readers can
+   *  still parse v2 bundles by ignoring the schema field. */
+  bundle_version: 1 | 2;
   scenario: string;
   agents: { aria: string; atlas: string; tribunal: string }; // DIDs
   /** Pre-committed dispute-resolution mode (set at open, immutable). */
@@ -175,6 +231,9 @@ export type Bundle = {
    *  disadvantage their counterparty. `null` for demo-seeded disputes — the
    *  operator picked the mode, not a real party, so attribution is undefined. */
   opened_by_role: "aria" | "atlas" | null;
+  /** State-schema metadata. Optional for v1 bundles; required for v2. Embedded
+   *  (not just ref'd) so the bundle is self-contained for offline auditing. */
+  state_schema?: BundleStateSchema;
   evidence: SignedEvidence[];
   messages: SignedMessage[];
   outcome:

@@ -1,6 +1,7 @@
 import type { LLMDriver, MessageBody } from "../orchestrator";
 import type { AgentBook } from "../agents";
 import type { EvidenceTier, SignedMessage } from "../types";
+import type { StateSchemaResult } from "../state_schema";
 
 /** A seed for one piece of pre-loaded evidence in a scenario. */
 export type EvidenceSeed = {
@@ -36,6 +37,11 @@ export type Scenario = {
   case_summary: string;
   /** Used by the CLI to format `state` payloads (e.g. "USD" vs "treatment-plan"). */
   state_units: string;
+  /** Compiled state-schema declaration. The orchestrator validates every
+   *  Propose/CounterPropose state and the jury's Ruling.remedy against this.
+   *  The JSON-Schema fragment is also embedded in the bundle so a third-party
+   *  auditor can read `final_state` without assuming any specific domain. */
+  state_schema: StateSchemaResult;
   agents: { aria: ScenarioAgentSpec; atlas: ScenarioAgentSpec };
   evidence: EvidenceSeed[];
   /** Optional offline replay so the demo runs without an API key. */

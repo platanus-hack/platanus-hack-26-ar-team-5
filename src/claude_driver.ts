@@ -5,6 +5,7 @@ import { docHash } from "./sign";
 import { getClient, MODELS } from "./anthropic";
 import { TOOLS } from "./prompts";
 import type { Scenario } from "./scenarios/types";
+import { recordClaudeTurn } from "../lib/auth/usage";
 
 function evidenceCatalog(evidence: SignedEvidence[]): string {
   return evidence
@@ -240,6 +241,20 @@ export function makeClaudeDriver(opts: ClaudeDriverOptions): LLMDriver {
         tool_choice: { type: "any", disable_parallel_tool_use: true },
         messages: [{ role: "user", content: userPrompt }],
       });
+
+      try {
+        await recordClaudeTurn({
+          model,
+          tokens_in: resp.usage.input_tokens,
+          tokens_out: resp.usage.output_tokens,
+          dispute_id: input.dispute_id,
+        });
+      } catch (err) {
+        console.error(
+          "[pacta-usage] recordClaudeTurn failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
 
       for (const block of resp.content) {
         if (block.type === "tool_use") {

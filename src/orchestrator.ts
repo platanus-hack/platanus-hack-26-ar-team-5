@@ -49,6 +49,10 @@ export interface LLMDriver {
      *  LLM can distinguish "you broke a rule, fix it" from "the protocol's
      *  game-theoretic engine suggests you concede this turn". */
     advisories?: string[];
+    /** Dispute id, when the driver runs inside a persisted dispute. Used by
+     *  the Claude driver to attribute per-turn token spend to a specific
+     *  dispute via recordClaudeTurn. Absent for the CLI demo path. */
+    dispute_id?: string;
   }): Promise<MessageBody>;
 }
 

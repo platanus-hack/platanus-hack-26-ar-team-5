@@ -10,6 +10,8 @@ import type {
   RulingOutcome,
 } from "./types";
 import { readStateTiers, shortHash } from "./format";
+import { Rationale } from "./rationale";
+import { Collapsible, Chevron } from "../ui/collapsible";
 
 const OUTCOME_LABEL: Record<RulingOutcome, string> = {
   claimant_prevails: "Claimant prevails",
@@ -25,38 +27,189 @@ const OUTCOME_TONE: Record<RulingOutcome, string> = {
   abstain: "text-warn-red",
 };
 
-type Props = {
-  dispute: DisputeDump;
+type Tone = "settled" | "ruled" | "failed";
+
+const TONE_DOT: Record<Tone, string> = {
+  settled: "bg-pulse-green",
+  ruled: "bg-atlas",
+  failed: "bg-warn-red",
 };
+
+const TONE_LABEL: Record<Tone, string> = {
+  settled: "text-pulse-green",
+  ruled: "text-atlas",
+  failed: "text-warn-red",
+};
+
+type Props = { dispute: DisputeDump };
+
+// ---------------------------------------------------------------------------
+// Public entry — figures out the tone + delegates body to a small variant fn.
+// ---------------------------------------------------------------------------
 
 export function OutcomeBanner({ dispute }: Props) {
   if (!dispute.finalized) return null;
   const outcome = dispute.finalized.outcome;
+
   if (outcome.kind === "converged") {
-    return <ConvergedBanner dispute={dispute} acceptedHash={outcome.accepted_msg_hash} />;
-  }
-  if (outcome.kind === "ruling") {
+    const accepted = findAcceptedProposal(
+      dispute.history,
+      outcome.accepted_msg_hash,
+    );
     return (
-      <RuledBanner
+      <Shell
         dispute={dispute}
-        votes={outcome.votes}
-        ruling={outcome.ruling}
-      />
+        tone="settled"
+        status="Converged"
+        headline={`Settled in ${dispute.current_round} ${dispute.current_round === 1 ? "round" : "rounds"}.`}
+      >
+        <ConvergedBody
+          dispute={dispute}
+          accepted={accepted}
+          acceptedHash={outcome.accepted_msg_hash}
+        />
+      </Shell>
     );
   }
+
+  if (outcome.kind === "ruling") {
+    const r = outcome.ruling;
+    return (
+      <Shell
+        dispute={dispute}
+        tone="ruled"
+        status="Tribunal ruling"
+        headline={
+          <>
+            <span className={OUTCOME_TONE[r.outcome]}>
+              {OUTCOME_LABEL[r.outcome]}
+            </span>
+            <span className="text-ash-gray">
+              {" — "}
+              {(r.confidence * 100).toFixed(0)}% confidence
+            </span>
+          </>
+        }
+      >
+        <RuledBody votes={outcome.votes} ruling={r} />
+      </Shell>
+    );
+  }
+
   if (outcome.kind === "withdrawn") {
     return (
-      <WithdrawnBanner
+      <Shell
         dispute={dispute}
-        withdrawnRole={outcome.withdrawn_role}
-        reason={outcome.reason}
-      />
+        tone="failed"
+        status="Withdrawn"
+        headline={
+          <>
+            <span
+              className={
+                outcome.withdrawn_role === "aria" ? "text-aria" : "text-atlas"
+              }
+            >
+              {outcome.withdrawn_role}
+            </span>{" "}
+            walked at round {dispute.current_round}/{dispute.max_rounds}.
+          </>
+        }
+      >
+        <WithdrawnBody reason={outcome.reason} />
+      </Shell>
     );
   }
-  return <DeadlineBanner dispute={dispute} />;
+
+  return (
+    <Shell
+      dispute={dispute}
+      tone="failed"
+      status="Deadline"
+      headline={`No agreement reached at round ${dispute.current_round}/${dispute.max_rounds}.`}
+    >
+      <DeadlineBody noTribunal={dispute.tribunal_mode === "none"} />
+    </Shell>
+  );
 }
 
-/** Find the Propose / CounterPropose that was Accepted (where the deal lives). */
+// ---------------------------------------------------------------------------
+// Shared shell — same chrome for every outcome. One container, one type scale.
+// ---------------------------------------------------------------------------
+
+function Shell({
+  tone,
+  status,
+  headline,
+  children,
+  dispute,
+}: {
+  tone: Tone;
+  status: string;
+  headline: React.ReactNode;
+  children?: React.ReactNode;
+  dispute: DisputeDump;
+}) {
+  return (
+    <section className="rounded-lg border border-line/70 bg-graphite/40">
+      <div className="flex flex-col gap-1 px-5 py-4 border-b border-line/40">
+        <div className="flex items-center gap-2 text-caption">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`}
+            aria-hidden="true"
+          />
+          <span className={TONE_LABEL[tone]}>{status}</span>
+        </div>
+        <p className="text-body text-polar-white">{headline}</p>
+      </div>
+      {children && <div className="px-5 py-4">{children}</div>}
+      <BundleRow dispute={dispute} />
+    </section>
+  );
+}
+
+function BundleRow({ dispute }: { dispute: DisputeDump }) {
+  if (!dispute.finalized) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line/40 px-5 py-3 text-caption">
+      <span className="text-ash-gray">Signed bundle</span>
+      <span className="font-mono text-bone">
+        sha256:{shortHash(dispute.finalized.root_hash, 24)}
+      </span>
+      <span className="ml-auto text-dim tabular">
+        {dispute.finalized.evidence.length} evidence ·{" "}
+        {dispute.finalized.messages.length} messages
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reusable label/value row — used by every variant body.
+// ---------------------------------------------------------------------------
+
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[140px_minmax(0,1fr)] items-baseline gap-4 py-1.5 text-caption">
+      <dt className="text-ash-gray">{label}</dt>
+      <dd className="text-polar-white">{children}</dd>
+    </div>
+  );
+}
+
+function DefList({ children }: { children: React.ReactNode }) {
+  return <dl className="divide-y divide-line/30">{children}</dl>;
+}
+
+// ---------------------------------------------------------------------------
+// Variant 1 — bilateral convergence
+// ---------------------------------------------------------------------------
+
 function findAcceptedProposal(
   history: DumpMessage[],
   acceptedHash: string,
@@ -72,16 +225,15 @@ function findAcceptedProposal(
   return null;
 }
 
-function ConvergedBanner({
+function ConvergedBody({
   dispute,
+  accepted,
   acceptedHash,
 }: {
   dispute: DisputeDump;
+  accepted: DumpProposeMsg | null;
   acceptedHash: string;
 }) {
-  const accepted = findAcceptedProposal(dispute.history, acceptedHash);
-  // The state shape can be flat ({credit_usd, terms}) or wrapped
-  // ({domain, tiers}); readStateTiers tolerates both.
   const tiers: Array<[string, unknown]> = accepted
     ? readStateTiers(accepted.payload.state)
     : [];
@@ -94,273 +246,136 @@ function ConvergedBanner({
   const acceptedBy: AgentRole | null = proposedBy === "aria" ? "atlas" : "aria";
 
   return (
-    <section className="overflow-hidden rounded-lg border border-amber-glow/40 bg-graphite/40">
-      {/* Hero */}
-      <div className="flex items-end justify-between gap-6 border-b border-amber-glow/20 bg-amber-glow/5 px-6 py-5">
-        <div>
-          <div className="t-body uppercase tracking-[0.22em] text-amber-glow">
-            Outcome
-          </div>
-          <h3 className="mt-1 text-[28px] font-light leading-tight tracking-[-0.01em] text-polar-white">
-            Settled in {dispute.current_round}{" "}
-            {dispute.current_round === 1 ? "round" : "rounds"}.
-          </h3>
-        </div>
-        {proposedBy && acceptedBy && (
-          <p className="t-body text-ash-gray">
-            <span className={proposedBy === "aria" ? "text-aria" : "text-atlas"}>
-              {proposedBy}
-            </span>{" "}
-            proposed,{" "}
-            <span className={acceptedBy === "aria" ? "text-aria" : "text-atlas"}>
-              {acceptedBy}
-            </span>{" "}
-            accepted.
-          </p>
-        )}
-      </div>
-
-      {/* Final terms */}
-      {tiers.length > 0 ? (
-        <div className="grid grid-cols-1 gap-px bg-line/40 sm:grid-cols-2 lg:grid-cols-3">
-          {tiers.map(([k, v]) => (
-            <div key={k} className="bg-graphite/40 px-5 py-4">
-              <div className="t-body uppercase tracking-[0.18em] text-ash-gray">
-                {k}
-              </div>
-              <div className="mt-1.5 text-[20px] font-light tabular text-polar-white">
-                {formatTermValue(v)}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="px-6 py-5">
-          <p className="t-label text-bone">
-            Both agents converged on the proposal at{" "}
-            <span className="font-mono text-amber-glow">
-              #{shortHash(acceptedHash, 12)}
-            </span>
-            . Open it in the timeline above to see the full state and rationale.
-          </p>
-        </div>
+    <DefList>
+      {proposedBy && (
+        <Row label="Proposed by">
+          <RoleTag role={proposedBy} />
+        </Row>
       )}
-
-      <BundleFooter dispute={dispute} />
-    </section>
+      {acceptedBy && (
+        <Row label="Accepted by">
+          <RoleTag role={acceptedBy} />
+        </Row>
+      )}
+      {tiers.length === 0 && (
+        <Row label="Accepted hash">
+          <span className="font-mono">#{shortHash(acceptedHash, 14)}</span>
+        </Row>
+      )}
+      {tiers.map(([k, v]) => (
+        <Row key={k} label={termLabel(k)}>
+          <span className="tabular">{formatTermValue(v)}</span>
+        </Row>
+      ))}
+    </DefList>
   );
 }
 
-function RuledBanner({
-  dispute,
+function RoleTag({ role }: { role: AgentRole }) {
+  const cls = role === "aria" ? "text-aria" : "text-atlas";
+  return <span className={cls}>{role}</span>;
+}
+
+// ---------------------------------------------------------------------------
+// Variant 2 — tribunal ruling
+// ---------------------------------------------------------------------------
+
+function RuledBody({
   votes,
   ruling,
 }: {
-  dispute: DisputeDump;
   votes: DumpSignedVote[];
   ruling: DumpSignedRuling;
 }) {
-  const outcomeLabel = OUTCOME_LABEL[ruling.outcome];
-  const outcomeTone = OUTCOME_TONE[ruling.outcome];
   const remedyTiers = readStateTiers(ruling.remedy);
-
   return (
-    <section className="overflow-hidden rounded-lg border border-atlas/40 bg-graphite/40">
-      {/* Hero */}
-      <div className="flex flex-wrap items-end justify-between gap-6 border-b border-atlas/20 bg-atlas/5 px-6 py-5">
-        <div>
-          <div className="t-body uppercase tracking-[0.22em] text-atlas">
-            Tribunal ruling
-          </div>
-          <h3
-            className={`mt-1 text-[28px] font-light leading-tight tracking-[-0.01em] ${outcomeTone}`}
-          >
-            {outcomeLabel}
-          </h3>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <span className="t-body uppercase tracking-[0.18em] text-dim">
-            Confidence
-          </span>
-          <span className="text-[22px] font-light tabular text-polar-white">
-            {(ruling.confidence * 100).toFixed(0)}%
-          </span>
-        </div>
-      </div>
-
-      {/* Jury votes — all jurors share the tribunal DID, so key on juror name (Aequitas/Utilis/Velox are unique). */}
-      <div className="grid grid-cols-1 gap-px bg-line/40 lg:grid-cols-3">
-        {votes.map((v, i) => (
-          <JurorCard key={`${v.juror}-${i}`} v={v} />
-        ))}
-      </div>
-
-      {/* Remedy + ruling rationale */}
-      <div className="grid grid-cols-1 gap-5 border-t border-line/40 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div>
-          <div className="t-body uppercase tracking-[0.18em] text-ash-gray">
-            Ruling rationale
-          </div>
-          <p className="mt-2 t-label leading-[22px] text-bone">
-            {ruling.rationale}
-          </p>
-        </div>
-        {remedyTiers.length > 0 && (
-          <div>
-            <div className="t-body uppercase tracking-[0.18em] text-ash-gray">
-              Remedy
+    <div className="flex flex-col gap-5">
+      <DefList>
+        {votes.map((v) => (
+          <Row key={`${v.juror}-${v.juror_model}`} label={v.juror}>
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
+              <span className={OUTCOME_TONE[v.outcome]}>
+                {OUTCOME_LABEL[v.outcome]}
+              </span>
+              <span className="text-ash-gray tabular">
+                {(v.confidence * 100).toFixed(0)}%
+              </span>
+              <span className="text-dim">
+                {v.juror_model.replace(/^claude-/, "")}
+              </span>
             </div>
-            <dl className="mt-2 space-y-1.5">
-              {remedyTiers.map(([k, v]) => (
-                <div
-                  key={k}
-                  className="grid grid-cols-[110px_1fr] gap-2 t-body"
-                >
-                  <dt className="text-ash-gray/70">{k}</dt>
-                  <dd className="font-mono text-polar-white">
-                    {formatTermValue(v)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          </Row>
+        ))}
+        {remedyTiers.map(([k, v]) => (
+          <Row key={k} label={termLabel(k)}>
+            <span className="tabular">{formatTermValue(v)}</span>
+          </Row>
+        ))}
+      </DefList>
+
+      <Collapsible
+        triggerClassName="flex w-full cursor-pointer items-center gap-2 text-left text-caption text-ash-gray transition-colors hover:text-bone"
+        trigger={(open) => (
+          <>
+            <Chevron open={open} />
+            <span>Ruling rationale</span>
+            <span className="text-dim">
+              · {votes.length} {votes.length === 1 ? "juror" : "jurors"}
+            </span>
+          </>
         )}
-      </div>
-
-      <BundleFooter dispute={dispute} />
-    </section>
-  );
-}
-
-function JurorCard({ v }: { v: DumpSignedVote }) {
-  return (
-    <div className="bg-graphite/40 px-5 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-baseline gap-2">
-          <span className="t-label text-polar-white">{v.juror}</span>
-          <span className="t-body text-dim">
-            {v.juror_model.replace(/^claude-/, "")}
-          </span>
-        </div>
-        <span className="t-body tabular text-bone">
-          {(v.confidence * 100).toFixed(0)}%
-        </span>
-      </div>
-      <div className={`mt-2 t-label ${OUTCOME_TONE[v.outcome]}`}>
-        {OUTCOME_LABEL[v.outcome]}
-      </div>
-      {v.rationale && (
-        <p className="mt-2 line-clamp-3 t-body leading-[18px] text-ash-gray">
-          {v.rationale}
-        </p>
-      )}
-      {v.cited_evidence_hashes.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5 font-mono t-body text-dim">
-          {v.cited_evidence_hashes.slice(0, 4).map((h) => (
-            <span key={h}>#{shortHash(h, 8)}</span>
-          ))}
-          {v.cited_evidence_hashes.length > 4 && (
-            <span>+{v.cited_evidence_hashes.length - 4}</span>
-          )}
-        </div>
-      )}
+      >
+        <Rationale text={ruling.rationale} />
+      </Collapsible>
     </div>
   );
 }
 
-function DeadlineBanner({ dispute }: { dispute: DisputeDump }) {
-  const noTribunal = dispute.tribunal_mode === "none";
+// ---------------------------------------------------------------------------
+// Variant 3 — deadline
+// ---------------------------------------------------------------------------
+
+function DeadlineBody({ noTribunal }: { noTribunal: boolean }) {
+  if (!noTribunal) {
+    return (
+      <p className="text-caption text-bone">
+        Max rounds elapsed without a converging Accept and the parties did not
+        Escalate. The bundle records the deadlock.
+      </p>
+    );
+  }
   return (
-    <section className="overflow-hidden rounded-lg border border-warn-red/40 bg-graphite/40">
-      <div className="flex flex-wrap items-end justify-between gap-6 border-b border-warn-red/20 bg-warn-red/5 px-6 py-5">
-        <div>
-          <div className="t-body uppercase tracking-[0.22em] text-warn-red">
-            Outcome
-          </div>
-          <h3 className="mt-1 text-[28px] font-light leading-tight tracking-[-0.01em] text-polar-white">
-            No agreement reached.
-          </h3>
-        </div>
-        <p className="t-body text-ash-gray">
-          Round {dispute.current_round} of {dispute.max_rounds}.
-        </p>
-      </div>
-      {noTribunal && (
-        <div className="px-6 py-4 t-body leading-[20px] text-bone">
-          Both parties opted out of the Tribunal at open
-          (<code className="font-mono text-warn-red">tribunal_mode=none</code>).
-          The signed bundle records the deadlock with no remedy and no winner —
-          downstream consumers can see exactly how far the negotiation got.
-        </div>
-      )}
-      <BundleFooter dispute={dispute} />
-    </section>
+    <p className="text-caption text-bone">
+      Both parties opted out of the Tribunal at open
+      (<code className="font-mono text-warn-red">tribunal_mode=none</code>).
+      The signed bundle records the deadlock with no remedy and no winner.
+    </p>
   );
 }
 
-function WithdrawnBanner({
-  dispute,
-  withdrawnRole,
-  reason,
-}: {
-  dispute: DisputeDump;
-  withdrawnRole: "aria" | "atlas";
-  reason: string;
-}) {
+// ---------------------------------------------------------------------------
+// Variant 4 — withdrawn
+// ---------------------------------------------------------------------------
+
+function WithdrawnBody({ reason }: { reason: string }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-warn-red/40 bg-graphite/40">
-      <div className="flex flex-wrap items-end justify-between gap-6 border-b border-warn-red/20 bg-warn-red/5 px-6 py-5">
-        <div>
-          <div className="t-body uppercase tracking-[0.22em] text-warn-red">
-            Outcome
-          </div>
-          <h3 className="mt-1 text-[28px] font-light leading-tight tracking-[-0.01em] text-polar-white">
-            <span
-              className={
-                withdrawnRole === "aria" ? "text-aria" : "text-atlas"
-              }
-            >
-              {withdrawnRole}
-            </span>{" "}
-            withdrew.
-          </h3>
-        </div>
-        <p className="t-body text-ash-gray">
-          At round {dispute.current_round} of {dispute.max_rounds}.
-        </p>
-      </div>
-      <div className="px-6 py-4">
-        <div className="t-body uppercase tracking-[0.18em] text-ash-gray">
-          Reason
-        </div>
-        <p className="mt-2 t-label leading-[22px] text-bone">{reason}</p>
-        <p className="mt-3 t-body text-dim">
-          Withdraw is unilateral — works under any tribunal_mode. The audit
-          trail records who walked, why, and at what round. No remedy, no
-          winner, but a permanent on-record exit.
-        </p>
-      </div>
-      <BundleFooter dispute={dispute} />
-    </section>
+    <DefList>
+      <Row label="Reason">
+        <span className="text-bone">{reason}</span>
+      </Row>
+    </DefList>
   );
 }
 
-function BundleFooter({ dispute }: { dispute: DisputeDump }) {
-  if (!dispute.finalized) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-line/40 bg-graphite/20 px-6 py-3">
-      <span className="t-body uppercase tracking-[0.18em] text-ash-gray">
-        Signed bundle
-      </span>
-      <span className="font-mono t-body text-bone">
-        sha256:{shortHash(dispute.finalized.root_hash, 32)}
-      </span>
-      <span className="ml-auto t-body text-dim">
-        {dispute.finalized.evidence.length} evidence ·{" "}
-        {dispute.finalized.messages.length} messages
-      </span>
-    </div>
-  );
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function termLabel(key: string): string {
+  // Pretty-print the schema keys so the def list reads naturally.
+  if (key === "credit_usd") return "Credit (USD)";
+  if (key === "terms") return "Terms";
+  return key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 }
 
 function formatTermValue(v: unknown): string {

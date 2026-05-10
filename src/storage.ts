@@ -216,21 +216,29 @@ return {1, currentVersion}
   }
 }
 
-let _storage: DisputeStorage | null = null;
+// Pinned on globalThis so Pages Router (/api/mcp) and App Router (/api/disputes)
+// share the same in-memory map even when Turbopack dev re-imports this module
+// from two compilation roots. In production with Redis the cache is irrelevant.
+const STORAGE_GLOBAL_KEY = Symbol.for("pacta.storage.singleton.v1");
+type GlobalWithPacta = typeof globalThis & {
+  [STORAGE_GLOBAL_KEY]?: DisputeStorage;
+};
+
 export function getStorage(): DisputeStorage {
-  if (_storage) return _storage;
+  const g = globalThis as GlobalWithPacta;
+  if (g[STORAGE_GLOBAL_KEY]) return g[STORAGE_GLOBAL_KEY];
   // Vercel KV exposes KV_REST_API_URL+KV_REST_API_TOKEN.
   // Manual Upstash exposes UPSTASH_REDIS_REST_URL+UPSTASH_REDIS_REST_TOKEN.
   const url =
     process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
   const token =
     process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (url && token) {
-    _storage = new RedisStorage(new Redis({ url, token }));
-  } else {
-    _storage = new MemoryStorage();
-  }
-  return _storage;
+  const storage =
+    url && token
+      ? new RedisStorage(new Redis({ url, token }))
+      : new MemoryStorage();
+  g[STORAGE_GLOBAL_KEY] = storage;
+  return storage;
 }
 
 export function isPersistent(): boolean {

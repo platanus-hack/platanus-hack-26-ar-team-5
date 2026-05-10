@@ -3,19 +3,17 @@ import {
   deleteDispute,
   getDispute,
 } from "../../../../src/dispute_store";
+import { withApiAuthAppRouter } from "../../../../lib/auth/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export const GET = withApiAuthAppRouter<{ id: string }>(async (_req, ctx) => {
   const { id } = await ctx.params;
   try {
     const dump = await dumpDispute(id);
     return Response.json(dump, {
-      headers: { "Cache-Control": "no-store" },
+      headers: { "Cache-Control": "no-store", "X-Pacta-Dispute-Id": id },
     });
   } catch (err) {
     return Response.json(
@@ -23,7 +21,7 @@ export async function GET(
       { status: 404 },
     );
   }
-}
+}, { allowSession: true });
 
 /** DELETE /api/disputes/:id — restricted to demo disputes only.
  *
@@ -31,11 +29,12 @@ export async function GET(
  *  audit trail). Real BYO disputes (any external controller) cannot be
  *  deleted via this HTTP endpoint — the bundle is the artifact, and a
  *  third party with the dispute_id should not be able to wipe it. If you
- *  need to clear a real dispute from storage, do it server-side / out-of-band. */
-export async function DELETE(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
+ *  need to clear a real dispute from storage, do it server-side / out-of-band.
+ *
+ *  Auth: gated by `withApiAuthAppRouter` so a session or API key is required;
+ *  the demo-only check below is an additional rail on top of auth so even
+ *  authenticated callers can't delete real signed audit trails. */
+export const DELETE = withApiAuthAppRouter<{ id: string }>(async (_req, ctx) => {
   const { id } = await ctx.params;
   let state: Awaited<ReturnType<typeof getDispute>>;
   try {
@@ -58,5 +57,7 @@ export async function DELETE(
     );
   }
   await deleteDispute(id);
-  return Response.json({ ok: true });
-}
+  return Response.json({ ok: true }, {
+    headers: { "X-Pacta-Dispute-Id": id },
+  });
+}, { allowSession: true });

@@ -673,6 +673,7 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         rejection_feedback:
           state.pending_feedback.length > 0 ? [...state.pending_feedback] : undefined,
         advisories: advisories.length > 0 ? [...advisories] : undefined,
+        dispute_id: state.dispute_id,
       });
       const r = applyAttempt(state, role, body, attempt);
       events.push(...r.events);

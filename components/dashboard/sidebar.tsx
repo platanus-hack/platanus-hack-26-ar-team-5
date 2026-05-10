@@ -58,8 +58,7 @@ export function Sidebar({
   const disputes = data?.disputes ?? [];
 
   return (
-    <aside className="flex w-full flex-col border-r border-line/70 bg-midnight-void/60 lg:sticky lg:top-0 lg:h-screen lg:w-[320px]">
-      <SidebarHeader />
+    <aside className="flex w-full flex-col border-r border-line/70 bg-midnight-void/60 lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:w-[320px]">
       <SeedRow
         scenarios={scenarios}
         scenarioId={scenarioId}
@@ -77,31 +76,6 @@ export function Sidebar({
       />
       <SidebarFooter />
     </aside>
-  );
-}
-
-function SidebarHeader() {
-  return (
-    <div className="border-b border-line/70 px-5 py-5">
-      <a href="/" className="flex items-center gap-2 transition-opacity hover:opacity-75">
-        <LogoMark className="h-5 w-5 text-polar-white" />
-        <span className="t-label font-medium text-polar-white">Pacta</span>
-        <span className="ml-auto t-body uppercase tracking-[0.18em] text-ash-gray">
-          Console
-        </span>
-      </a>
-      <p className="mt-2 t-body text-dim">
-        Live signed-message feed across active disputes.
-      </p>
-    </div>
-  );
-}
-
-function LogoMark({ className = "h-5 w-5" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 256 256" className={className} fill="currentColor" aria-hidden="true">
-      <path d="M 0 128 C 70.692 128 128 185.308 128 256 L 64 256 C 64 220.654 35.346 192 0 192 Z M 256 192 C 220.654 192 192 220.654 192 256 L 128 256 C 128 185.308 185.308 128 256 128 Z M 128 0 C 128 70.692 70.692 128 0 128 L 0 64 C 35.346 64 64 35.346 64 0 Z M 192 0 C 192 35.346 220.654 64 256 64 L 256 128 C 185.308 128 128 70.692 128 0 Z" />
-    </svg>
   );
 }
 
@@ -263,10 +237,10 @@ function DisputeRow({
       type="button"
       onClick={onClick}
       className={[
-        "group flex flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-all duration-150",
+        "group flex flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-[border-color,background-color,transform,box-shadow] duration-150 will-change-transform",
         selected
-          ? "border-amber-glow/40 bg-graphite/80"
-          : "border-line/70 bg-graphite/30 hover:border-line hover:bg-graphite/60",
+          ? "border-amber-glow/40 bg-graphite/80 shadow-[inset_2px_0_0_0_var(--color-amber-glow)]"
+          : "border-line/70 bg-graphite/30 hover:-translate-y-px hover:border-line hover:bg-graphite/60 active:translate-y-0",
       ].join(" ")}
     >
       <div className="flex items-center justify-between gap-2">

@@ -1,5 +1,6 @@
 import { getDispute } from "../../../../../src/dispute_store";
 import { withdrawFromDispute } from "../../../../../src/dispute_engine";
+import { withApiAuthAppRouter } from "../../../../../lib/auth/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,11 +18,11 @@ export const dynamic = "force-dynamic";
  *  Real BYO disputes (any external controller) MUST use MCP `withdraw_dispute`
  *  with the role_token returned by `open_dispute` / `join_dispute`. The HTTP
  *  endpoint refuses to act on them — otherwise any third party with the
- *  dispute_id could permanently terminate someone else's negotiation. */
-export async function POST(
-  req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
+ *  dispute_id could permanently terminate someone else's negotiation.
+ *
+ *  Auth: gated by `withApiAuthAppRouter` so a session or API key is required;
+ *  the demo-only check below is an additional rail. */
+export const POST = withApiAuthAppRouter<{ id: string }>(async (req, ctx) => {
   const { id } = await ctx.params;
   let body: { role?: "aria" | "atlas"; reason?: string } = {};
   try {
@@ -33,7 +34,7 @@ export async function POST(
   if (role !== "aria" && role !== "atlas") {
     return Response.json(
       { error: "role must be 'aria' or 'atlas'" },
-      { status: 400 },
+      { status: 400, headers: { "X-Pacta-Dispute-Id": id } },
     );
   }
   try {
@@ -41,7 +42,7 @@ export async function POST(
     if (state.finalized) {
       return Response.json(
         { error: "dispute is already finalized" },
-        { status: 409 },
+        { status: 409, headers: { "X-Pacta-Dispute-Id": id } },
       );
     }
     const isDemoDispute =
@@ -69,12 +70,17 @@ export async function POST(
         events: result.events.length,
         finalized: result.state.finalized,
       },
-      { headers: { "Cache-Control": "no-store" } },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Pacta-Dispute-Id": id,
+        },
+      },
     );
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : String(err) },
-      { status: 400 },
+      { status: 400, headers: { "X-Pacta-Dispute-Id": id } },
     );
   }
-}
+}, { allowSession: true });

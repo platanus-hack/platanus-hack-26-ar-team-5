@@ -12,6 +12,9 @@ import { shortHash } from "./format";
 
 type Props = {
   dispute: DisputeDump;
+  /** When true, skip the outer card chrome (header + border) — the parent
+   *  is providing it (see DisputeFlow). */
+  bare?: boolean;
 };
 
 const TYPE_INFO: Record<
@@ -94,7 +97,7 @@ const LANE_Y: Record<Lane, number> = {
   tribunal: TOP_PAD + LANE_GAP * 2,
 };
 
-export function DagGraph({ dispute }: Props) {
+export function DagGraph({ dispute, bare = false }: Props) {
   const ariaDid = dispute.agents.aria;
   const items = dispute.history;
 
@@ -226,31 +229,38 @@ export function DagGraph({ dispute }: Props) {
   const bottomLane = showTribunal ? LANE_Y.tribunal : LANE_Y.atlas;
   const height = bottomLane + LABEL_OFFSET + 28;
 
+  const wrapperClass = bare
+    ? ""
+    : "overflow-hidden rounded-lg border border-line/70 bg-graphite/30";
+  const Wrapper = bare ? "div" : "section";
+
   return (
-    <section className="overflow-hidden rounded-lg border border-line/70 bg-graphite/30">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line/70 px-4 py-3">
-        <div className="t-body uppercase tracking-[0.2em] text-ash-gray">
-          Audit DAG
+    <Wrapper className={wrapperClass}>
+      {!bare && (
+        <div className="flex flex-col gap-3 border-b border-line/70 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="text-body font-medium text-polar-white">
+            Audit DAG
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-bone">
+            {(
+              [
+                "Propose",
+                "CounterPropose",
+                "Reveal",
+                "Accept",
+                "Critique",
+                "Escalate",
+                "Withdraw",
+              ] as const
+            ).map((t) => (
+              <Legend key={t} label={TYPE_INFO[t].label} color={TYPE_INFO[t].color} />
+            ))}
+            {showTribunal && <Legend label="Vote" color={RULING_COLOR} />}
+            {showTribunal && <Legend label="Ruling" color={RULING_COLOR} ringed />}
+            {finalized && <Legend label="Root" color="#E7C59A" outline />}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-bone">
-          {(
-            [
-              "Propose",
-              "CounterPropose",
-              "Reveal",
-              "Accept",
-              "Critique",
-              "Escalate",
-              "Withdraw",
-            ] as const
-          ).map((t) => (
-            <Legend key={t} label={TYPE_INFO[t].label} color={TYPE_INFO[t].color} />
-          ))}
-          {showTribunal && <Legend label="Vote" color={RULING_COLOR} />}
-          {showTribunal && <Legend label="Ruling" color={RULING_COLOR} ringed />}
-          {finalized && <Legend label="Root" color="#E7C59A" outline />}
-        </div>
-      </div>
+      )}
 
       {msgNodes.length === 0 ? (
         <div className="px-4 py-10 text-center t-body text-dim">
@@ -361,7 +371,7 @@ export function DagGraph({ dispute }: Props) {
           </svg>
         </div>
       )}
-    </section>
+    </Wrapper>
   );
 }
 
@@ -456,15 +466,6 @@ function MsgNode({ n }: { n: Extract<LaidNode, { kind: "msg" }> }) {
         fill="var(--color-polar-white)"
       >
         {info.label}
-      </text>
-      <text
-        x={n.cx}
-        y={n.cy + LABEL_OFFSET + 14}
-        textAnchor="middle"
-        fontSize="10"
-        fill="var(--color-dim)"
-      >
-        r{n.round} · {n.ref}
       </text>
     </g>
   );

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "framer-motion";
 
 const links: Array<{ href: string; label: string }> = [
   { href: "/dashboard", label: "Console" },
@@ -13,7 +14,7 @@ export function NavLinks() {
   const pathname = usePathname() ?? "";
 
   return (
-    <nav className="flex items-center gap-1">
+    <nav className="flex items-center gap-1 text-caption">
       {links.map((l) => {
         const active =
           l.href === "/dashboard"
@@ -24,13 +25,21 @@ export function NavLinks() {
             key={l.href}
             href={l.href}
             aria-current={active ? "page" : undefined}
-            className={`rounded-md px-3 py-1.5 text-caption transition-colors ${
+            className={`relative rounded-md px-2.5 py-1 text-caption transition-colors duration-150 ${
               active
-                ? "bg-iron text-polar-white"
-                : "text-ash-gray hover:bg-iron/60 hover:text-bone"
+                ? "text-polar-white"
+                : "text-ash-gray hover:text-bone"
             }`}
           >
             {l.label}
+            {active && (
+              <motion.span
+                layoutId="nav-underline"
+                aria-hidden="true"
+                className="pointer-events-none absolute -bottom-[15px] left-2 right-2 h-px bg-polar-white"
+                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              />
+            )}
           </Link>
         );
       })}

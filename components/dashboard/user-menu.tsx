@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 
 type Props = {
   email: string;
@@ -39,17 +40,24 @@ export function UserMenu({ email, fullName, avatarUrl, allowed }: Props) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex items-center gap-2 rounded-md border border-line/70 bg-graphite/60 px-2.5 py-1.5 text-caption text-bone transition-colors hover:border-line hover:bg-iron"
+        className="inline-flex items-center gap-2 rounded-md px-1.5 py-1 text-caption text-ash-gray transition-colors hover:bg-iron/70 hover:text-bone"
       >
         <Avatar src={avatarUrl} initials={initials} />
-        <span className="hidden max-w-[160px] truncate sm:inline">{email}</span>
+        <span className="hidden max-w-[160px] truncate sm:inline">
+          {email}
+        </span>
         <Caret open={open} />
       </button>
 
+      <AnimatePresence>
       {open && (
-        <div
+        <motion.div
           role="menu"
-          className="absolute right-0 z-40 mt-2 w-72 overflow-hidden rounded-md border border-line/70 bg-graphite shadow-xl"
+          initial={{ opacity: 0, scale: 0.96, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: -4 }}
+          transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+          className="origin-top-right absolute right-0 z-40 mt-2 w-72 overflow-hidden rounded-md border border-line/70 bg-graphite shadow-xl"
         >
           <div className="flex items-center gap-3 border-b border-line/70 px-4 py-3">
             <Avatar src={avatarUrl} initials={initials} large />
@@ -82,8 +90,9 @@ export function UserMenu({ email, fullName, avatarUrl, allowed }: Props) {
               Sign out
             </button>
           </form>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

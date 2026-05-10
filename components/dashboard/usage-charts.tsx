@@ -45,8 +45,8 @@ type Props = {
 
 export function UsageCharts({ data }: Props) {
   return (
-    <div className="flex flex-col gap-8">
-      <QuotaStrip quota={data.quota} />
+    <div className="flex flex-col gap-12">
+      <Quota quota={data.quota} />
       <Totals totals={data.totals} />
       <ByEndpoint rows={data.by_endpoint} />
       <RecentEvents rows={data.recent} />
@@ -54,64 +54,54 @@ export function UsageCharts({ data }: Props) {
   );
 }
 
-function QuotaStrip({ quota }: { quota: UsageSummary["quota"] }) {
+function Quota({ quota }: { quota: UsageSummary["quota"] }) {
   return (
-    <section className="flex flex-col gap-4">
-      <SectionHeader
-        title="Monthly quota"
-        subtitle="Resets at the start of each calendar month (UTC)."
-      />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <QuotaBar
+    <Section
+      title="Monthly quota"
+      subtitle="Resets at the start of each calendar month."
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <QuotaRow
           label="Disputes opened"
           used={quota.disputes_used}
           limit={quota.disputes_limit}
-          format={(n) => n.toLocaleString()}
         />
-        <QuotaBar
+        <QuotaRow
           label="Tokens used"
           used={quota.tokens_used}
           limit={quota.tokens_limit}
-          format={(n) => n.toLocaleString()}
         />
       </div>
-    </section>
+    </Section>
   );
 }
 
-function QuotaBar({
+function QuotaRow({
   label,
   used,
   limit,
-  format,
 }: {
   label: string;
   used: number;
   limit: number;
-  format: (n: number) => string;
 }) {
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const fill = pct >= 90 ? "bg-warn-red" : "bg-amber-glow";
+  const fill = pct >= 90 ? "bg-warn-red" : "bg-polar-white";
   return (
-    <div className="rounded-lg border border-line/70 bg-graphite/40 p-4">
-      <div className="flex items-baseline justify-between">
-        <span className="text-micro uppercase tracking-[0.18em] text-ash-gray">
-          {label}
-        </span>
-        <span className="font-mono text-caption tabular text-bone">
-          {format(used)}
-          <span className="text-dim"> / {format(limit)}</span>
+    <div className="rounded-lg border border-line/70 p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-caption text-ash-gray">{label}</span>
+        <span className="text-caption tabular text-bone">
+          {used.toLocaleString()}
+          <span className="text-dim"> / {limit.toLocaleString()}</span>
         </span>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-pill border border-line/70 bg-graphite/40">
+      <div className="mt-3 h-1.5 overflow-hidden rounded-pill bg-iron/60">
         <div
           className={`h-full ${fill} transition-[width]`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <p className="mt-2 text-micro tabular text-dim">
-        {pct.toFixed(1)}% used
-      </p>
     </div>
   );
 }
@@ -119,8 +109,7 @@ function QuotaBar({
 function Totals({ totals }: { totals: UsageSummary["totals"] }) {
   const cost = Math.round(totals.cost_usd * 10_000) / 10_000;
   return (
-    <section className="flex flex-col gap-4">
-      <SectionHeader title="Last 30 days" subtitle="Totals across all keys." />
+    <Section title="Last 30 days" subtitle="Totals across all keys.">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Requests" value={totals.requests.toLocaleString()} />
         <Stat
@@ -131,35 +120,17 @@ function Totals({ totals }: { totals: UsageSummary["totals"] }) {
           label="Messages sent"
           value={totals.messages_sent.toLocaleString()}
         />
-        <Stat
-          label="Cost (USD)"
-          value={`$${cost.toFixed(4)}`}
-          accent="text-amber-glow"
-        />
+        <Stat label="Cost" value={`$${cost.toFixed(4)}`} />
       </div>
-    </section>
+    </Section>
   );
 }
 
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-}) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-line/70 bg-graphite/40 p-4">
-      <p className="text-micro uppercase tracking-[0.18em] text-ash-gray">
-        {label}
-      </p>
-      <p
-        className={`mt-2 text-stat-lg tabular ${
-          accent ?? "text-polar-white"
-        }`}
-      >
+    <div className="rounded-lg border border-line/70 p-4">
+      <p className="text-caption text-ash-gray">{label}</p>
+      <p className="mt-2 text-[26px] font-medium leading-none tabular text-polar-white">
         {value}
       </p>
     </div>
@@ -168,35 +139,36 @@ function Stat({
 
 function ByEndpoint({ rows }: { rows: UsageSummary["by_endpoint"] }) {
   return (
-    <section className="flex flex-col gap-3">
-      <SectionHeader
-        title="By endpoint"
-        subtitle="Sorted by request volume in the last 30 days."
-      />
-      <div className="overflow-hidden rounded-lg border border-line/70 bg-graphite/40">
+    <Section
+      title="By endpoint"
+      subtitle="Sorted by request volume in the last 30 days."
+    >
+      <div className="overflow-hidden rounded-lg border border-line/70">
         {rows.length === 0 ? (
           <p className="px-4 py-4 text-caption text-ash-gray">
             No requests yet.
           </p>
         ) : (
           <table className="w-full text-caption">
-            <thead className="text-micro uppercase tracking-[0.14em] text-ash-gray">
-              <tr>
+            <thead>
+              <tr className="text-left text-caption text-ash-gray">
                 <Th>Endpoint</Th>
                 <Th className="text-right">Requests</Th>
-                <Th className="text-right pr-4">Last used</Th>
+                <Th className="text-right">Last used</Th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line/50">
+            <tbody className="divide-y divide-line/40">
               {rows.map((r) => (
-                <tr key={r.endpoint}>
+                <tr key={r.endpoint} className="text-bone">
                   <Td>
-                    <span className="font-mono text-bone">{r.endpoint}</span>
+                    <span className="font-mono text-polar-white">
+                      {r.endpoint}
+                    </span>
                   </Td>
-                  <td className="px-4 py-2.5 text-right font-mono tabular text-polar-white">
+                  <td className="px-4 py-2.5 text-right tabular text-polar-white">
                     {r.requests.toLocaleString()}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-ash-gray">
+                  <td className="px-4 py-2.5 text-right text-ash-gray tabular">
                     {r.last_used_at ? relativeTime(r.last_used_at) : "—"}
                   </td>
                 </tr>
@@ -205,56 +177,52 @@ function ByEndpoint({ rows }: { rows: UsageSummary["by_endpoint"] }) {
           </table>
         )}
       </div>
-    </section>
+    </Section>
   );
 }
 
 function RecentEvents({ rows }: { rows: UsageEvent[] }) {
   return (
-    <section className="flex flex-col gap-3">
-      <SectionHeader
-        title="Recent events"
-        subtitle="Last 20 instrumented requests."
-      />
-      <div className="overflow-x-auto rounded-lg border border-line/70 bg-graphite/40">
+    <Section title="Recent events" subtitle="Last 20 instrumented requests.">
+      <div className="overflow-x-auto rounded-lg border border-line/70">
         {rows.length === 0 ? (
           <p className="px-4 py-4 text-caption text-ash-gray">
             No events recorded yet.
           </p>
         ) : (
           <table className="w-full min-w-[720px] text-caption">
-            <thead className="text-micro uppercase tracking-[0.14em] text-ash-gray">
-              <tr>
+            <thead>
+              <tr className="text-left text-caption text-ash-gray">
                 <Th>Time</Th>
-                <Th>Method · endpoint</Th>
+                <Th>Request</Th>
                 <Th className="text-right">Status</Th>
                 <Th>Dispute</Th>
-                <Th className="text-right pr-4">Tokens (in / out)</Th>
+                <Th className="text-right">Tokens (in / out)</Th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line/50">
+            <tbody className="divide-y divide-line/40">
               {rows.map((e) => (
-                <tr key={e.id}>
-                  <Td>
-                    <span className="font-mono text-bone">
-                      {formatTimeUtc(e.ts)}
-                    </span>
+                <tr key={e.id} className="text-bone">
+                  <Td className="tabular text-ash-gray">
+                    {formatTimeUtc(e.ts)}
                   </Td>
                   <Td>
-                    <span className="font-mono text-bone">
-                      <span className="text-dim">{e.method}</span>{" "}
+                    <span className="text-ash-gray">{e.method}</span>{" "}
+                    <span className="font-mono text-polar-white">
                       {e.endpoint}
                     </span>
                   </Td>
-                  <td className="px-4 py-2.5 text-right">
-                    <StatusBadge status={e.status} />
+                  <td className={`px-4 py-2.5 text-right tabular ${statusColor(e.status)}`}>
+                    {e.status}
                   </td>
-                  <Td>
-                    <span className="font-mono text-ash-gray">
-                      {e.dispute_id ? shortId(e.dispute_id) : "—"}
-                    </span>
+                  <Td className="text-ash-gray">
+                    {e.dispute_id ? (
+                      <span className="font-mono">{shortId(e.dispute_id)}</span>
+                    ) : (
+                      "—"
+                    )}
                   </Td>
-                  <td className="px-4 py-2.5 text-right font-mono tabular text-polar-white">
+                  <td className="px-4 py-2.5 text-right tabular text-polar-white">
                     {e.tokens_in.toLocaleString()}{" "}
                     <span className="text-dim">/</span>{" "}
                     {e.tokens_out.toLocaleString()}
@@ -265,42 +233,35 @@ function RecentEvents({ rows }: { rows: UsageEvent[] }) {
           </table>
         )}
       </div>
-    </section>
+    </Section>
   );
 }
 
-function StatusBadge({ status }: { status: number }) {
-  const tone =
-    status >= 500
-      ? "border-warn-red/40 bg-warn-red/10 text-warn-red"
-      : status >= 400
-        ? "border-amber-glow/40 bg-amber-glow/10 text-amber-glow"
-        : "border-pulse-green/40 bg-pulse-green/10 text-pulse-green";
-  return (
-    <span
-      className={`inline-flex items-center rounded-pill border px-2 py-0.5 font-mono text-micro tabular ${tone}`}
-    >
-      {status}
-    </span>
-  );
+function statusColor(status: number): string {
+  if (status >= 500) return "text-warn-red";
+  if (status >= 400) return "text-amber-glow";
+  return "text-pulse-green";
 }
 
-function SectionHeader({
+function Section({
   title,
   subtitle,
+  children,
 }: {
   title: string;
   subtitle?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div>
-      <h2 className="text-body uppercase tracking-[0.18em] text-bone">
-        {title}
-      </h2>
-      {subtitle && (
-        <p className="mt-1 text-caption text-ash-gray">{subtitle}</p>
-      )}
-    </div>
+    <section className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-body font-medium text-polar-white">{title}</h2>
+        {subtitle && (
+          <p className="mt-1 text-caption text-ash-gray">{subtitle}</p>
+        )}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -314,7 +275,7 @@ function Th({
   return (
     <th
       scope="col"
-      className={`px-4 py-2 text-left font-normal ${className ?? ""}`}
+      className={`px-4 py-2.5 font-normal ${className ?? ""}`}
     >
       {children}
     </th>

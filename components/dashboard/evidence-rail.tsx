@@ -26,11 +26,9 @@ export function EvidenceRail({ dispute }: Props) {
   const items = dispute.evidence;
   return (
     <section className="rounded-lg border border-line/70 bg-graphite/30">
-      <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
-        <div className="t-body uppercase tracking-[0.2em] text-ash-gray">
-          Evidence pool
-        </div>
-        <div className="t-body text-dim">
+      <div className="flex items-center justify-between gap-3 border-b border-line/70 px-4 py-3">
+        <div className="text-body font-medium text-polar-white">Evidence</div>
+        <div className="text-caption text-dim">
           {items.length} {items.length === 1 ? "item" : "items"}
         </div>
       </div>

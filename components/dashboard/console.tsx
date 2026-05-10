@@ -3,20 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DisputeDump, TribunalMode } from "./types";
 import { Sidebar } from "./sidebar";
-import { HeaderBar } from "./header-bar";
-import { PartiesRow } from "./parties-row";
-import { UtilityChart } from "./utility-chart";
-import { Timeline } from "./timeline";
 import { EvidenceRail } from "./evidence-rail";
 import { OutcomeBanner } from "./outcome-banner";
-import { DagGraph } from "./dag-graph";
+import { DisputeFlow } from "./dispute-flow";
+import { DisputeHero } from "./dispute-hero";
 
 const POLL_INTERVAL_MS = 1500;
 
 export function Console() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dispute, setDispute] = useState<DisputeDump | null>(null);
-  const [online, setOnline] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
@@ -26,7 +22,6 @@ export function Console() {
   useEffect(() => {
     if (!selectedId) {
       setDispute(null);
-      setOnline(false);
       return;
     }
     let cancelled = false;
@@ -37,17 +32,13 @@ export function Console() {
         const r = await fetch(`/api/disputes/${selectedId}`, {
           cache: "no-store",
         });
-        if (!r.ok) {
-          if (!cancelled) setOnline(false);
-          return;
-        }
+        if (!r.ok) return;
         const j = (await r.json()) as DisputeDump;
         if (cancelled) return;
         setDispute(j);
-        setOnline(true);
         if (j.finalized) stopped = true;
       } catch {
-        if (!cancelled) setOnline(false);
+        /* swallow — next tick will retry */
       }
     }
 
@@ -176,7 +167,6 @@ export function Console() {
         refreshSignal={refreshSignal}
       />
       <main className="relative flex min-w-0 flex-1 flex-col">
-        <HeaderBar dispute={dispute} online={online} />
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-6">
           {error && (
             <div className="mb-4 rounded-md border border-warn-red/40 bg-warn-red/10 px-4 py-2.5 text-caption text-warn-red">
@@ -186,14 +176,10 @@ export function Console() {
           {!selectedId && <EmptyState seeding={seeding} />}
           {selectedId && !dispute && <LoadingDispute />}
           {dispute && (
-            <div className="flex flex-col gap-5">
-              {dispute.claim && <ClaimBanner claim={dispute.claim} />}
-              <ModeBanner dispute={dispute} onWithdraw={withdraw} />
-              <PartiesRow dispute={dispute} />
-              <DagGraph dispute={dispute} />
-              <UtilityChart dispute={dispute} />
-              <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-                <Timeline dispute={dispute} />
+            <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+              <DisputeHero dispute={dispute} onWithdraw={withdraw} />
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <DisputeFlow dispute={dispute} />
                 <EvidenceRail dispute={dispute} />
               </div>
               {dispute.finalized && <OutcomeBanner dispute={dispute} />}
@@ -205,92 +191,6 @@ export function Console() {
         </div>
       </main>
     </div>
-  );
-}
-
-function ClaimBanner({ claim }: { claim: string }) {
-  return (
-    <div className="rounded-lg border border-line/70 bg-graphite/40 px-4 py-3 text-caption text-bone">
-      <span className="mr-2 text-micro uppercase tracking-[0.18em] text-ash-gray">
-        Claim
-      </span>
-      {claim}
-    </div>
-  );
-}
-
-function ModeBanner({
-  dispute,
-  onWithdraw,
-}: {
-  dispute: DisputeDump;
-  onWithdraw: (
-    dispute_id: string,
-    role: "aria" | "atlas",
-    reason: string,
-  ) => Promise<void>;
-}) {
-  const mode = dispute.tribunal_mode;
-  const finalized = !!dispute.finalized;
-  const tone =
-    mode === "binding"
-      ? "border-amber-glow/30 bg-amber-glow/5 text-amber-glow"
-      : "border-warn-red/40 bg-warn-red/5 text-warn-red";
-  const summary =
-    mode === "binding"
-      ? "Binding tribunal — if these two don't converge, the 3-LLM Tribunal arbitrates."
-      : "No tribunal — parties opted out at open. If they don't converge, bundle ends as deadline.";
-  return (
-    <section
-      className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 ${tone}`}
-    >
-      <span className="text-micro font-mono uppercase tracking-[0.2em]">
-        tribunal_mode · {mode}
-      </span>
-      <span className="t-body text-bone">{summary}</span>
-      {!finalized && (
-        <div className="ml-auto flex items-center gap-2">
-          <WithdrawButton
-            label="Aria withdraws"
-            onClick={() =>
-              onWithdraw(
-                dispute.dispute_id,
-                "aria",
-                "Aria walked from the dashboard.",
-              )
-            }
-          />
-          <WithdrawButton
-            label="Atlas withdraws"
-            onClick={() =>
-              onWithdraw(
-                dispute.dispute_id,
-                "atlas",
-                "Atlas walked from the dashboard.",
-              )
-            }
-          />
-        </div>
-      )}
-    </section>
-  );
-}
-
-function WithdrawButton({
-  label,
-  onClick,
-}: {
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-md border border-warn-red/40 bg-warn-red/10 px-3 py-1 text-micro font-medium uppercase tracking-[0.14em] text-warn-red transition-colors hover:bg-warn-red/20"
-    >
-      {label}
-    </button>
   );
 }
 
@@ -333,15 +233,54 @@ function SkeletonRow({ tall }: { tall?: boolean }) {
 
 function EmptyState({ seeding }: { seeding: boolean }) {
   return (
-    <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 py-24 text-center">
-      <h2 className="t-display max-w-md font-light text-white">
-        {seeding ? "Seeding a dispute." : "Pick a dispute."}
-      </h2>
-      <p className="t-label max-w-sm text-white/55">
-        {seeding
-          ? "Claude is booting both sides. The first move appears here in a few seconds."
-          : "Or seed a new one to watch two AI agents negotiate, cite evidence, and produce a signed bundle."}
-      </p>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 py-16">
+      <header className="flex flex-col gap-2">
+        <span className="text-caption text-ash-gray">Workbench</span>
+        <h2 className="text-[22px] font-medium leading-tight text-polar-white">
+          {seeding
+            ? "Seeding a dispute…"
+            : "Pick a dispute from the sidebar, or seed one."}
+        </h2>
+        <p className="text-body text-ash-gray">
+          {seeding
+            ? "Claude is booting both sides. The first move lands here in a few seconds."
+            : "Pacta is the protocol two AI agents use when they disagree. Each move is signed, every offer cites evidence, and the outcome is a bundle a third party can verify offline."}
+        </p>
+      </header>
+
+      {!seeding && <ExplainerSteps />}
     </div>
+  );
+}
+
+function ExplainerSteps() {
+  const steps: Array<{ title: string; body: string }> = [
+    {
+      title: "Two agents open a dispute",
+      body: "The opener brings a free-form claim (or picks a bundled scenario). Each side gets a DID and a token to act on its turn.",
+    },
+    {
+      title: "They exchange signed moves",
+      body: "Propose, CounterPropose, Critique, Reveal — every move is Ed25519-signed and content-addressed. Utility for self must be monotonically non-increasing (the compromise bound).",
+    },
+    {
+      title: "They converge — or escalate",
+      body: "A bilateral Accept ends the dispute. If they deadlock, a 3-LLM Tribunal rules. Either way you walk away with a signed bundle (root_hash + every message + every evidence) verifiable offline.",
+    },
+  ];
+  return (
+    <ol className="flex flex-col gap-5 border-l border-line/60 pl-6">
+      {steps.map((s, i) => (
+        <li key={i} className="relative">
+          <span className="absolute -left-[35px] top-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-line/70 bg-iron text-micro tabular text-bone">
+            {i + 1}
+          </span>
+          <p className="text-caption font-medium text-polar-white">
+            {s.title}
+          </p>
+          <p className="mt-0.5 text-caption text-ash-gray">{s.body}</p>
+        </li>
+      ))}
+    </ol>
   );
 }

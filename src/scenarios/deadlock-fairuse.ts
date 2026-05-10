@@ -1,5 +1,6 @@
 import { docHash } from "../sign";
 import type { Scenario, ScenarioMockStep } from "./types";
+import { usdCreditSchema } from "./_schemas";
 
 /**
  * Second designed-deadlock scenario, this one targeted at the JURY, not the
@@ -230,6 +231,11 @@ export const deadlockFairuse: Scenario = {
   case_summary:
     "Author/illustrator collective alleges AI company used member works in training without authorization. Company asserts transformative-use defense. Past comparable rulings split. Atra's reservation: ≥ USD 3M, settlement framing, opt-out registry. Helio's reservation: ≤ USD 2M, goodwill framing, fair-use preserved. No bilaterally acceptable middle ground.",
   state_units: "USD",
+  state_schema: usdCreditSchema({
+    domain: "USD-credit",
+    description:
+      "Fair-use licensing settlement state: USD amount + structural commitments (opt-out, fair-use framing).",
+  }),
   agents: {
     aria: {
       display_name: "Atra",

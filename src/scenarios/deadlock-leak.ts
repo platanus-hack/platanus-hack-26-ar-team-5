@@ -1,4 +1,6 @@
+import { z } from "zod";
 import { docHash } from "../sign";
+import { defineStateSchema } from "../state_schema";
 import type { Scenario, ScenarioMockStep } from "./types";
 
 /**
@@ -9,7 +11,45 @@ import type { Scenario, ScenarioMockStep } from "./types";
  * The interesting question is whether the heterogeneous jury can converge on
  * a hybrid the bilateral parties could not propose themselves under
  * compromise-bound + reservation constraints.
+ *
+ * The state schema is publication-terms-shaped — the parties are negotiating
+ * over WHEN to publish, WHAT to redact, and WHO reviews — not USD amounts.
+ * Encoding it as `{credit_usd, terms}` would have been a lie; the typed
+ * schema below makes the bundle's `final_state` (or `ruling.remedy`) directly
+ * machine-readable for downstream auditors.
  */
+
+const leakStateSchema = defineStateSchema({
+  domain: "publication-terms",
+  description:
+    "Public-interest-publication settlement state. Encodes timing, redactions and corporate review — not USD. Each field is typed and independently aggregated by the tribunal.",
+  fields: {
+    timing: {
+      zod: z.enum(["immediate", "within-7d", "within-14d", "after-recall", "no-publication"]),
+      aggregation: "majority",
+      description:
+        "When the publication may go live relative to the negotiation close. 'after-recall' waits for the corporation's planned voluntary recall (T+30d). 'no-publication' = injunction-style outcome.",
+    },
+    redactions: {
+      zod: z.array(z.string()),
+      aggregation: "intersect",
+      description:
+        "Categories of redaction the publication must apply (e.g. 'personal-details', 'all-named-individuals', 'third-whistleblower'). Tribunal intersects across jurors so only redactions ALL agree on survive.",
+    },
+    corporate_review: {
+      zod: z.enum(["none", "material-only", "full"]),
+      aggregation: "majority",
+      description:
+        "Pre-publication review the corporation gets. 'none' protects newsroom independence; 'material-only' lets them flag factual errors; 'full' lets them gate publication content.",
+    },
+    rationale_summary: {
+      zod: z.string(),
+      aggregation: "majority",
+      description:
+        "Short prose summary of the agreement (kept for human readability of the bundle).",
+    },
+  },
+});
 
 const VEGA_SYSTEM = `You are Vega, the editorial agent at an investigative newsroom. You hold the role of "Aria" in this Pacta negotiation.
 
@@ -49,8 +89,13 @@ The newsroom's editor-in-chief + legal counsel.
 - Reveal "two whistleblowers gave on-record affidavits" if Argo argues NDA voids the story.
 - Accept ONLY if the core safety findings are publishable in some form.
 
-# State payload
-"credit_usd" = unused (set 0). "terms" = the actual publication agreement.
+# State payload — IMPORTANT
+Your state has FOUR typed fields (plus the standard \`amendments\` array):
+- \`timing\`: one of "immediate", "within-7d", "within-14d", "after-recall", "no-publication".
+- \`redactions\`: array of redaction categories. Examples: "personal-details", "uninvolved-family-members", "all-named-individuals", "third-whistleblower".
+- \`corporate_review\`: one of "none", "material-only", "full".
+- \`rationale_summary\`: short prose summary of the publication terms.
+- \`amendments\`: always include (default []).
 
 # Output
 Emit exactly one message per turn via a tool call.`;
@@ -89,7 +134,8 @@ The corporation's General Counsel + CEO's office.
 - Reveal "voluntary recall in preparation" if Vega digs in on public-interest urgency.
 - Accept ONLY if publication is post-recall AND personal details + the third whistleblower's name are redacted.
 
-# State payload — same as Vega.
+# State payload — IMPORTANT
+Same shape as Vega: \`timing\`, \`redactions\` (array), \`corporate_review\`, \`rationale_summary\`, \`amendments\` (array, default []).
 
 # Output
 Emit exactly one message per turn via a tool call.`;
@@ -106,8 +152,16 @@ const mockScript: ScenarioMockStep[] = [
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
     parent_refs: [],
     payload: {
-      state: { credit_usd: 0, terms: "Full publication with all named individuals; no redactions; standard newsroom legal review." },
-      rationale: "Two of three whistleblowers will go on the record. Public-interest urgency overrides NDA enforcement on matters of consumer safety.",
+      state: {
+        timing: "immediate",
+        redactions: [],
+        corporate_review: "none",
+        rationale_summary:
+          "Full publication with all named individuals; no redactions; standard newsroom legal review.",
+        amendments: [],
+      },
+      rationale:
+        "Two of three whistleblowers will go on the record. Public-interest urgency overrides NDA enforcement on matters of consumer safety.",
       utility_for_self: 0.95,
     },
   }),
@@ -120,8 +174,16 @@ const mockScript: ScenarioMockStep[] = [
       evidence_refs: atlasEvidenceHashes.slice(0, 2),
       parent_refs: [docHash(last)],
       payload: {
-        state: { credit_usd: 0, terms: "No publication. Return of dossier. Acknowledgment of NDA breach. Standard non-disparagement settlement." },
-        rationale: "The dossier was obtained via breach of NDA. Publication is enjoinable. The relevant remediation is already underway internally.",
+        state: {
+          timing: "no-publication",
+          redactions: ["all-named-individuals", "personal-details"],
+          corporate_review: "full",
+          rationale_summary:
+            "No publication. Return of dossier. Acknowledgment of NDA breach. Standard non-disparagement settlement.",
+          amendments: [],
+        },
+        rationale:
+          "The dossier was obtained via breach of NDA. Publication is enjoinable. The relevant remediation is already underway internally.",
         utility_for_self: 0.95,
       },
     };
@@ -135,7 +197,8 @@ const mockScript: ScenarioMockStep[] = [
     parent_refs: [],
     payload: {
       domain: "affidavits",
-      information: "Two of the three named whistleblowers have signed on-the-record affidavits, including the one who never signed an NDA in the first place.",
+      information:
+        "Two of the three named whistleblowers have signed on-the-record affidavits, including the one who never signed an NDA in the first place.",
     },
   }),
   ({ atlasDid }) => ({
@@ -146,7 +209,8 @@ const mockScript: ScenarioMockStep[] = [
     parent_refs: [],
     payload: {
       domain: "voluntary-recall",
-      information: "A voluntary product recall addressing the core safety concern is in preparation and has been internally approved; public announcement was scheduled for 30 days from now.",
+      information:
+        "A voluntary product recall addressing the core safety concern is in preparation and has been internally approved; public announcement was scheduled for 30 days from now.",
     },
   }),
   // R3 — both inch toward middle but stay incompatible
@@ -157,8 +221,16 @@ const mockScript: ScenarioMockStep[] = [
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
-      state: { credit_usd: 0, terms: "Publication of core safety findings within 7 days; redactions of personal details about uninvolved individuals; the third (non-NDA) whistleblower named." },
-      rationale: "Concedes redaction of personal details to protect privacy. Cannot delay further; recall preparation may take months — the public-interest window is now.",
+      state: {
+        timing: "within-7d",
+        redactions: ["personal-details", "uninvolved-family-members"],
+        corporate_review: "none",
+        rationale_summary:
+          "Publication of core safety findings within 7 days; redactions of personal details about uninvolved individuals; the third (non-NDA) whistleblower named.",
+        amendments: [],
+      },
+      rationale:
+        "Concedes redaction of personal details to protect privacy. Cannot delay further; recall preparation may take months — the public-interest window is now.",
       utility_for_self: 0.78,
     },
   }),
@@ -169,8 +241,16 @@ const mockScript: ScenarioMockStep[] = [
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
-      state: { credit_usd: 0, terms: "Publication ONLY after voluntary recall announcement (T+30 days); full redaction of all named individuals; corporation reviews piece for material misrepresentations only." },
-      rationale: "Concedes acknowledgment that publication will eventually happen. Aligns it with the recall so consumer-safety message is unified. Protects all named individuals.",
+      state: {
+        timing: "after-recall",
+        redactions: ["all-named-individuals", "personal-details", "third-whistleblower"],
+        corporate_review: "material-only",
+        rationale_summary:
+          "Publication ONLY after voluntary recall announcement (T+30 days); full redaction of all named individuals; corporation reviews piece for material misrepresentations only.",
+        amendments: [],
+      },
+      rationale:
+        "Concedes acknowledgment that publication will eventually happen. Aligns it with the recall so consumer-safety message is unified. Protects all named individuals.",
       utility_for_self: 0.82,
     },
   }),
@@ -182,8 +262,16 @@ const mockScript: ScenarioMockStep[] = [
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
-      state: { credit_usd: 0, terms: "Publication within 14 days; redactions of personal details only; at least the non-NDA whistleblower may be named; no editorial review by Argo." },
-      rationale: "Compromise on timing by 7 days. Compromise on redactions of uninvolved individuals. Cannot allow Argo editorial review — that would compromise newsroom independence.",
+      state: {
+        timing: "within-14d",
+        redactions: ["personal-details", "uninvolved-family-members"],
+        corporate_review: "none",
+        rationale_summary:
+          "Publication within 14 days; redactions of personal details only; at least the non-NDA whistleblower may be named; no editorial review by Argo.",
+        amendments: [],
+      },
+      rationale:
+        "Compromise on timing by 7 days. Compromise on redactions of uninvolved individuals. Cannot allow Argo editorial review — that would compromise newsroom independence.",
       utility_for_self: 0.65,
     },
   }),
@@ -194,8 +282,16 @@ const mockScript: ScenarioMockStep[] = [
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
-      state: { credit_usd: 0, terms: "Publication post-recall (T+30 days). All named individuals redacted. Corporation legal review of material claims only." },
-      rationale: "We will not accept publication that names any individual; we will not accept publication before the recall. Below this is litigation territory for us.",
+      state: {
+        timing: "after-recall",
+        redactions: ["all-named-individuals", "personal-details"],
+        corporate_review: "material-only",
+        rationale_summary:
+          "Publication post-recall (T+30 days). All named individuals redacted. Corporation legal review of material claims only.",
+        amendments: [],
+      },
+      rationale:
+        "We will not accept publication that names any individual; we will not accept publication before the recall. Below this is litigation territory for us.",
       utility_for_self: 0.62,
     },
   }),
@@ -207,8 +303,16 @@ const mockScript: ScenarioMockStep[] = [
     evidence_refs: ariaEvidenceHashes.slice(0, 2),
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
-      state: { credit_usd: 0, terms: "Publication within 14 days; redactions of personal details only; non-NDA whistleblower named." },
-      rationale: "We're at our reservation. Cannot accept a 30-day delay; that runs the public-interest window into the recall and renders the story stale.",
+      state: {
+        timing: "within-14d",
+        redactions: ["personal-details", "uninvolved-family-members"],
+        corporate_review: "none",
+        rationale_summary:
+          "Publication within 14 days; redactions of personal details only; non-NDA whistleblower named.",
+        amendments: [],
+      },
+      rationale:
+        "We're at our reservation. Cannot accept a 30-day delay; that runs the public-interest window into the recall and renders the story stale.",
       utility_for_self: 0.55,
     },
   }),
@@ -219,7 +323,13 @@ const mockScript: ScenarioMockStep[] = [
     evidence_refs: atlasEvidenceHashes.slice(0, 2),
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
-      state: { credit_usd: 0, terms: "Publication T+30, all named individuals redacted." },
+      state: {
+        timing: "after-recall",
+        redactions: ["all-named-individuals", "personal-details"],
+        corporate_review: "material-only",
+        rationale_summary: "Publication T+30, all named individuals redacted.",
+        amendments: [],
+      },
       rationale: "We're at our reservation; below this we file for injunction.",
       utility_for_self: 0.55,
     },
@@ -234,6 +344,7 @@ export const deadlockLeak: Scenario = {
   case_summary:
     "Investigative newsroom obtained a dossier alleging systematic safety violations affecting consumer products. Corporation invokes NDA signed by 2 of 3 whistleblowers. Newsroom's reservation: must publish core safety findings now. Corporation's reservation: no publication until after voluntary recall (T+30) and only with all individuals redacted. No bilaterally acceptable middle ground.",
   state_units: "publication-terms",
+  state_schema: leakStateSchema,
   agents: {
     aria: {
       display_name: "Vega",
@@ -277,7 +388,7 @@ export const deadlockLeak: Scenario = {
       tier: "B",
       title: "Newsroom legal counsel's pre-publication memo",
       body:
-        "Internal memo from the newsroom's legal counsel outlining the privacy risk of including personal details about uninvolved individuals. Self-emitted; signals where the newsroom is willing to redact.",
+        "Internal memo from the newsroom's legal counsel outlining the privacy risk of including personal details about uninvolved individuals. Self-emitted, qualitative, no external corroboration.",
     },
     {
       evidence_id: "ndas-signed",

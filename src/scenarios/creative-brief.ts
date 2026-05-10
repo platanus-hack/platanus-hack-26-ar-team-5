@@ -1,5 +1,6 @@
 import { docHash } from "../sign";
 import type { Scenario, ScenarioMockStep } from "./types";
+import { usdCreditSchema } from "./_schemas";
 
 /**
  * Intentionally "lax" scenario: the underlying contract is vague, evidence is
@@ -238,6 +239,11 @@ export const creativeBrief: Scenario = {
   case_summary:
     "USD 12k SOW for hero image set 'modern, minimalist, conveys speed and reliability'. Sigma delivered 5 options; Lyra rejected as 'generic'. The brief and acceptance criteria are intentionally vague. Most evidence is Tier B (self-emitted rationale and review notes). The 'right answer' is contestable.",
   state_units: "USD",
+  state_schema: usdCreditSchema({
+    domain: "USD-credit",
+    description:
+      "Creative-brief settlement state: USD payment to agency + revisions/scope terms.",
+  }),
   agents: {
     aria: {
       display_name: "Lyra",

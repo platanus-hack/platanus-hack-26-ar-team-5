@@ -1,10 +1,48 @@
+import { z } from "zod";
 import { docHash } from "../sign";
+import { defineStateSchema } from "../state_schema";
 import type { Scenario, ScenarioMockStep } from "./types";
 
-// In oncology, "credit_usd" is overloaded as the *coverage envelope* for the
-// treatment plan: 0 = no upgrade beyond the insurer's default, full = the
-// hospital's preferred regimen approved without conditions. The `terms` string
-// carries the actual treatment plan in plain language.
+// Oncology state schema. Unlike the USD-credit scenarios, the state here is
+// genuinely multi-dimensional — a treatment plan has structure (regimen,
+// duration, stop rules) and that structure deserves typed fields rather than
+// being flattened into an opaque `terms` blob. The `coverage_envelope_usd`
+// field is honest now: it represents the actual USD ceiling the insurer
+// commits to, not a proxy for "how much of the prescription is approved".
+
+const oncologyStateSchema = defineStateSchema({
+  domain: "oncology-coverage",
+  description:
+    "Oncology authorization plan: USD coverage envelope + treatment regimen + " +
+    "duration + objectivized stopping rules. Each field is typed and " +
+    "independently aggregated by the tribunal.",
+  fields: {
+    coverage_envelope_usd: {
+      zod: z.number().min(0).max(200000),
+      aggregation: "median",
+      description:
+        "USD ceiling the insurer authorizes for this treatment plan. 0 = consolidation-only / insurer default; up to 200k for the full upfront prescription with extensions.",
+    },
+    regimen: {
+      zod: z.string(),
+      aggregation: "majority",
+      description:
+        "Treatment regimen label (e.g. 'durvalumab + carbo/paclitaxel concurrent', 'consolidation per PACIFIC').",
+    },
+    duration_months: {
+      zod: z.number().min(0).max(12),
+      aggregation: "median",
+      description:
+        "Treatment duration in months. 6 = full PACIFIC-aligned plan; 0 = no upfront, consolidation-only.",
+    },
+    stop_rules: {
+      zod: z.array(z.string()),
+      aggregation: "intersect",
+      description:
+        "Discontinuation triggers (imaging cadence, toxicity grade thresholds, etc). The tribunal intersects across jurors so only stop rules ALL jurors agree on survive.",
+    },
+  },
+});
 
 const AURORA_SYSTEM = `You are Aurora, the clinical authorization agent at a tertiary-care hospital. You hold the role of "Aria" in this Pacta negotiation.
 
@@ -39,13 +77,18 @@ The treating oncologist + the hospital's authorization committee.
 5. **Accept**: target a real prior Propose/CounterPropose hash.
 
 # Strategy
-- R1: open with the oncologist's prescribed regimen (full coverage envelope, terms = upfront concurrent durva).
+- R1: open with the oncologist's prescribed regimen (full coverage envelope, 6mo concurrent durva).
 - R2–3: concede toward shorter durva windows + early-stop criteria, but never to consolidation-only.
 - Reveal PD-L1 65% if Cobra anchors on consolidation-only.
 - Accept when Cobra's plan includes upfront immuno (any duration ≥ 3mo) with reasonable stopping rules.
 
-# State payload
-The "credit_usd" field encodes the COVERAGE ENVELOPE in USD (0 → consolidation-only insurer default; 80000 → full hospital prescription). The "terms" field carries the actual treatment plan in human language. Always populate both.
+# State payload — IMPORTANT
+Your state has FOUR typed fields (plus the standard \`amendments\` array):
+- \`coverage_envelope_usd\` (number, 0..200000): the USD ceiling the insurer authorizes. 0 = consolidation-only default, ~80000 = full upfront prescription.
+- \`regimen\` (string): treatment label, e.g. "durvalumab + carbo/paclitaxel concurrent w/ radiotherapy".
+- \`duration_months\` (number, 0..12): how long the upfront immunotherapy runs.
+- \`stop_rules\` (array of strings): explicit discontinuation triggers (e.g. ["imaging at month 2", "discontinue on grade 3+ AE"]).
+- \`amendments\` (array): always include (default []). Use this slot if you and Cobra agree on a clause the schema didn't anticipate (via Amend → Accept).
 
 # Output
 You MUST emit exactly one message per turn via a tool call.`;
@@ -84,8 +127,8 @@ The insurer's medical director + actuarial / finance.
 - Reveal the PMO + utilization policy reasoning when challenged.
 - Accept when Aurora's plan ≤ 3 months upfront AND has clear discontinuation triggers.
 
-# State payload
-"credit_usd" = coverage envelope (0 = consolidation-only / 80000 = full prescription). "terms" = actual treatment plan in human language.
+# State payload — IMPORTANT
+Same shape as Aurora: \`coverage_envelope_usd\`, \`regimen\`, \`duration_months\`, \`stop_rules\` (array), \`amendments\` (array, default []).
 
 # Output
 You MUST emit exactly one message per turn via a tool call.`;
@@ -100,8 +143,11 @@ const mockScript: ScenarioMockStep[] = [
     parent_refs: [],
     payload: {
       state: {
-        credit_usd: 80000,
-        terms: "durvalumab + carbo/paclitaxel concurrent w/ radiotherapy, 6 months, standard monitoring",
+        coverage_envelope_usd: 80000,
+        regimen: "durvalumab + carbo/paclitaxel concurrent w/ radiotherapy",
+        duration_months: 6,
+        stop_rules: ["standard monitoring", "discontinue on grade 4 AE"],
+        amendments: [],
       },
       rationale:
         "PACIFIC and NCCN cat-1 support durvalumab in stage IIIB; PD-L1 65% places patient above the maximal-benefit threshold. Patient's contract clause 7.3 covers oncologic treatment per international guidelines.",
@@ -118,8 +164,11 @@ const mockScript: ScenarioMockStep[] = [
       parent_refs: [docHash(last)],
       payload: {
         state: {
-          credit_usd: 15000,
-          terms: "carbo/paclitaxel + radiotherapy first; durvalumab as consolidation per PACIFIC, 6 months",
+          coverage_envelope_usd: 15000,
+          regimen: "carbo/paclitaxel + radiotherapy first; durvalumab consolidation per PACIFIC",
+          duration_months: 0,
+          stop_rules: ["pre-authorization required for consolidation phase"],
+          amendments: [],
         },
         rationale:
           "PMO does not list durvalumab upfront for this indication. Clause 12.5 permits the insurer to require alternative options of equivalent outcome. Consolidation matches the regulatory trial.",
@@ -161,9 +210,15 @@ const mockScript: ScenarioMockStep[] = [
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: {
-        credit_usd: 50000,
-        terms:
-          "concurrent durva + chemo for 3 months, then re-evaluate; early-stop on imaging progression or grade 3+ AE",
+        coverage_envelope_usd: 50000,
+        regimen: "concurrent durva + chemo",
+        duration_months: 3,
+        stop_rules: [
+          "imaging at month 2",
+          "discontinue on imaging progression",
+          "discontinue on grade 3+ AE",
+        ],
+        amendments: [],
       },
       rationale:
         "3-month concurrent window captures the upfront immunotherapy benefit window and protects the insurer with explicit stopping rules. Reduced from 6 months full plan.",
@@ -178,9 +233,16 @@ const mockScript: ScenarioMockStep[] = [
     parent_refs: [docHash(history[history.length - 1]!)],
     payload: {
       state: {
-        credit_usd: 50000,
-        terms:
-          "concurrent durva + chemo for 3 months with stopping rules (imaging at month 2, grade 3+ AE); consolidation pathway preserved if early-stop triggers",
+        coverage_envelope_usd: 50000,
+        regimen: "concurrent durva + chemo (with consolidation pathway preserved)",
+        duration_months: 3,
+        stop_rules: [
+          "imaging at month 2",
+          "discontinue on imaging progression",
+          "discontinue on grade 3+ AE",
+          "consolidation pathway resumes if early-stop triggers",
+        ],
+        amendments: [],
       },
       rationale:
         "Aligned with Aurora's 3-month proposal. Adds explicit imaging at month 2 to objectivize the discontinuation trigger. Within the medical director's authorization envelope.",
@@ -233,7 +295,8 @@ export const oncology: Scenario = {
     "Hospital's clinical-authorization agent (Aurora) vs health insurer's adjudication agent (Cobra) over an upfront vs consolidation immunotherapy plan for stage IIIB NSCLC.",
   case_summary:
     "47yo non-smoker, stage IIIB NSCLC, EGFR-, PD-L1 65%. Oncologist prescribes durvalumab + chemo upfront + radio (~$80k). Insurer defaults to chemo+radio first, durva as consolidation per PACIFIC (~$15k). Convergence target: hybrid 3mo concurrent durva with stopping rules.",
-  state_units: "USD-coverage-envelope",
+  state_units: "oncology-coverage",
+  state_schema: oncologyStateSchema,
   agents: {
     aria: {
       display_name: "Aurora",

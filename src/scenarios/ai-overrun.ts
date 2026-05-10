@@ -1,5 +1,6 @@
 import { docHash } from "../sign";
 import type { Scenario, ScenarioMockStep } from "./types";
+import { usdCreditSchema } from "./_schemas";
 
 const ARIA_SYSTEM = `You are Aria, the FinOps + Platform agent at a Series-B SaaS company (the Customer).
 
@@ -208,6 +209,11 @@ export const aiOverrun: Scenario = {
   case_summary:
     "Period 2026-04: customer's eval shows -8% pass rate after model X.Y → X.Z rollout. Provider-signed logs show +40% retry rate. Customer claims $180k credit. Provider invokes ToS §8.2 (notice was given) and 'no support tickets'. Convergence target: hybrid credit + structural fix.",
   state_units: "USD",
+  state_schema: usdCreditSchema({
+    domain: "USD-credit",
+    description:
+      "AI-overrun settlement state: USD credit + structural-commitment terms.",
+  }),
   agents: {
     aria: {
       display_name: "Aria",

@@ -15,7 +15,7 @@ const SUPABASE_URL = "https://wnnpnckuubgdnsexxpzq.supabase.co";
 const SERVICE =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndubnBuY2t1dWJnZG5zZXh4cHpxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODM2OTU2MCwiZXhwIjoyMDkzOTQ1NTYwfQ.CGMVEVdxAXlM088T6R7er39YUS_kv82_2c7stVOXX5s";
 const PLATANUS_USER_ID = "41ea802f-594c-4270-8638-4fee495d49e2";
-const APP = "http://localhost:44323";
+const APP = "http://localhost:22231";
 const MCP_URL = `${APP}/api/mcp`;
 
 async function admin(path, init = {}) {
@@ -194,7 +194,7 @@ async function main() {
   console.log("✓ aria escala al tribunal — desacuerdo sobre interpretación de fuerza mayor");
 
   console.log("");
-  console.log("Listo. Andá a http://localhost:44323/dashboard y:");
+  console.log("Listo. Andá a http://localhost:22231/dashboard y:");
   console.log("  · /dashboard           → vas a ver la dispute en el sidebar");
   console.log(`  · /dashboard           → click en ${openedState.dispute_id} para ver el DAG firmado`);
   console.log("  · /dashboard/settings  → 2 keys minteadas (demo-aria, demo-atlas)");

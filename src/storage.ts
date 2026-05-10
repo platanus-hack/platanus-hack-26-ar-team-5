@@ -397,6 +397,7 @@ export async function saveDispute(live: LiveDispute): Promise<void> {
   const stored: StoredDispute = {
     dispute_id: live.dispute_id,
     claim: live.claim,
+    context_summary: live.context_summary ?? null,
     scenario_id: live.scenario_id,
     signed_evidence: live.evidence.signed,
     history: live.history,

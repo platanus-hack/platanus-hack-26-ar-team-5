@@ -48,6 +48,7 @@ describe("party-driven Escalate (mocked)", () => {
     const { submitExternalMessage } = await import("../src/dispute_engine.js");
 
     const opener = await openDispute({
+      context_summary: "Test dispute",
       claim: "Test escalation routing — both sides external.",
       your_role: "aria",
       counterparty_external: true,
@@ -61,6 +62,7 @@ describe("party-driven Escalate (mocked)", () => {
       role_token: opener.your_token,
       body: {
         type: "Propose",
+          summary: "test move",
         round: 1,
         from_agent: opener.your_did,
         evidence_refs: [],
@@ -83,6 +85,7 @@ describe("party-driven Escalate (mocked)", () => {
       role_token: joiner.your_token,
       body: {
         type: "Escalate",
+          summary: "test move",
         round: 1,
         from_agent: joiner.your_did,
         evidence_refs: [],
@@ -125,6 +128,7 @@ describe("party-driven Escalate (mocked)", () => {
     const { submitExternalMessage } = await import("../src/dispute_engine.js");
 
     const opener = await openDispute({
+      context_summary: "Test dispute",
       claim: "Test re-submit-after-finalized.",
       your_role: "aria",
       counterparty_external: true,
@@ -137,6 +141,7 @@ describe("party-driven Escalate (mocked)", () => {
       role_token: opener.your_token,
       body: {
         type: "Propose",
+          summary: "test move",
         round: 1,
         from_agent: opener.your_did,
         evidence_refs: [],
@@ -153,6 +158,7 @@ describe("party-driven Escalate (mocked)", () => {
       role_token: joiner.your_token,
       body: {
         type: "Escalate",
+          summary: "test move",
         round: 1,
         from_agent: joiner.your_did,
         evidence_refs: [],
@@ -167,6 +173,7 @@ describe("party-driven Escalate (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "CounterPropose",
+          summary: "test move",
           round: 2,
           from_agent: opener.your_did,
           evidence_refs: [],

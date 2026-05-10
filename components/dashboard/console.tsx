@@ -153,31 +153,11 @@ export function Console() {
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
               <DisputeView dispute={dispute} />
               <DagGraph dispute={dispute} />
-              {dispute.pending_feedback.length > 0 && !dispute.finalized && (
-                <FeedbackPanel feedback={dispute.pending_feedback} />
-              )}
             </div>
           )}
         </div>
       </main>
     </div>
-  );
-}
-
-function FeedbackPanel({ feedback }: { feedback: string[] }) {
-  return (
-    <section className="rounded-lg border border-warn-red/30 bg-graphite/50">
-      <div className="border-b border-warn-red/20 bg-warn-red/5 px-4 py-2.5 text-micro uppercase tracking-[0.2em] text-warn-red">
-        Pending validator feedback
-      </div>
-      <ul className="divide-y divide-line/50">
-        {feedback.map((f, i) => (
-          <li key={i} className="px-4 py-2.5 font-mono text-caption text-bone">
-            {f}
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

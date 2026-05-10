@@ -144,6 +144,7 @@ describe("state_schema (mocked)", () => {
       const { submitExternalMessage } = await import("../src/dispute_engine.js");
 
       const opener = await openDispute({
+        context_summary: "Test dispute",
         scenario_id: "oncology",
         your_role: "aria",
         counterparty_external: true,
@@ -159,6 +160,7 @@ describe("state_schema (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -183,6 +185,7 @@ describe("state_schema (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "Amend",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],
@@ -207,6 +210,7 @@ describe("state_schema (mocked)", () => {
       const { submitExternalMessage } = await import("../src/dispute_engine.js");
 
       const opener = await openDispute({
+        context_summary: "Test dispute",
         scenario_id: "oncology",
         your_role: "aria",
         counterparty_external: true,
@@ -222,6 +226,7 @@ describe("state_schema (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -246,6 +251,7 @@ describe("state_schema (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "Amend",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],
@@ -273,6 +279,7 @@ describe("state_schema (mocked)", () => {
       const { submitExternalMessage } = await import("../src/dispute_engine.js");
 
       const opener = await openDispute({
+        context_summary: "Test dispute",
         scenario_id: "oncology",
         your_role: "aria",
         counterparty_external: true,
@@ -288,6 +295,7 @@ describe("state_schema (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -312,6 +320,7 @@ describe("state_schema (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "Amend",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],
@@ -330,6 +339,7 @@ describe("state_schema (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Accept",
+          summary: "test move",
           round: 2,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -355,6 +365,7 @@ describe("state_schema (mocked)", () => {
       const { submitExternalMessage } = await import("../src/dispute_engine.js");
 
       const opener = await openDispute({
+        context_summary: "Test dispute",
         scenario_id: "ai-overrun",
         your_role: "aria",
         counterparty_external: true,
@@ -371,6 +382,7 @@ describe("state_schema (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Propose",
+          summary: "test move",
           round: 1,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -387,6 +399,7 @@ describe("state_schema (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "CounterPropose",
+          summary: "test move",
           round: 1,
           from_agent: joiner.your_did,
           evidence_refs: [],
@@ -404,6 +417,7 @@ describe("state_schema (mocked)", () => {
         role_token: opener.your_token,
         body: {
           type: "Accept",
+          summary: "test move",
           round: 2,
           from_agent: opener.your_did,
           evidence_refs: [],
@@ -417,6 +431,7 @@ describe("state_schema (mocked)", () => {
         role_token: joiner.your_token,
         body: {
           type: "Accept",
+          summary: "test move",
           round: 2,
           from_agent: joiner.your_did,
           evidence_refs: [],
@@ -473,6 +488,7 @@ describe("state_schema (mocked)", () => {
         "../src/dispute_store.js"
       );
       const opener = await openDispute({
+        context_summary: "Test dispute",
         scenario_id: "oncology",
         your_role: "aria",
         counterparty_external: true,

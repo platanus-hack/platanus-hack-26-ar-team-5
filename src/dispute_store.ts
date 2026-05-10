@@ -120,6 +120,15 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
   if (!args.scenario_id && !args.claim) {
     throw new Error("open_dispute requires either scenario_id or claim (or both)");
   }
+  // context_summary is mandatory in the protocol — it's the dashboard label and
+  // audit headline. normalizeSummary throws on >60 chars; we throw here on missing.
+  const context_summary = normalizeSummary(args.context_summary, CONTEXT_SUMMARY_MAX);
+  if (!context_summary) {
+    throw new Error(
+      "open_dispute requires `context_summary` — a 5-ish word headline of the case " +
+        "(e.g. 'Cloud SLA outage refund'). Hard-capped at 60 chars.",
+    );
+  }
   const tribunal_mode: TribunalMode = args.tribunal_mode ?? "binding";
   if (tribunal_mode !== "binding" && tribunal_mode !== "none") {
     throw new Error(
@@ -156,7 +165,7 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
   const live: LiveDispute = {
     dispute_id,
     claim: args.claim ?? null,
-    context_summary: normalizeSummary(args.context_summary, CONTEXT_SUMMARY_MAX),
+    context_summary,
     scenario_id: scenario ? scenario.id : null,
     signed_evidence: evidence.signed,
     scenario,

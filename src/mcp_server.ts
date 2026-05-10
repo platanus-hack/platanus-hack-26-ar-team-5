@@ -359,10 +359,10 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
           ),
         context_summary: z
           .string()
+          .min(1)
           .max(60)
-          .optional()
           .describe(
-            "REQUIRED-IN-PRACTICE: 5-ish word headline of the dispute used as the dashboard label and audit-trail context. Examples: 'Cloud SLA outage refund', 'Late vendor delivery penalty', 'Shared dataset license dispute'. Hard-capped at 60 chars — keep it glanceable, not prose.",
+            "REQUIRED. 5-ish word headline of the dispute used as the dashboard label and audit-trail context. Examples: 'Cloud SLA outage refund', 'Late vendor delivery penalty', 'Shared dataset license dispute'. Hard-capped at 60 chars — keep it glanceable, not prose.",
           ),
         scenario_id: z
           .string()
@@ -598,10 +598,10 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
               ),
             summary: z
               .string()
+              .min(1)
               .max(60)
-              .optional()
               .describe(
-                "REQUIRED-IN-PRACTICE: 2-4 word characterisation of THIS move for the dashboard / audit log. Examples: 'Demands full refund', 'Counters with $600', 'Cites force majeure', 'Escalates to tribunal', 'Accepts $600 deal'. Hard-capped at 60 chars. The other agent's reasoning still relies on rationale + payload — this is the glanceable label, not the substance.",
+                "REQUIRED. 2-4 word characterisation of THIS move for the dashboard / audit log. Examples: 'Demands full refund', 'Counters with $600', 'Cites force majeure', 'Escalates to tribunal', 'Accepts $600 deal'. Hard-capped at 60 chars. The other agent's reasoning still relies on rationale + payload — this is the glanceable label, not the substance.",
               ),
           })
           .describe("The message body to submit. msg_id and timestamp are filled by Pacta."),

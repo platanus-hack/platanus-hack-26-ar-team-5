@@ -46,9 +46,7 @@ export function DisputeView({ dispute }: Props) {
 
   const aw = aria ? positionFromProposal(aria) : null;
   const tw = atlas ? positionFromProposal(atlas) : null;
-  const award = dispute.finalized
-    ? extractOutcomePosition(dispute.finalized.outcome)
-    : null;
+  const award = dispute.finalized ? extractOutcomePosition(dispute) : null;
   const awardTone = dispute.finalized ? pickAwardTone(dispute) : "neutral";
 
   return (
@@ -585,18 +583,19 @@ function lastProposalBy(
 /**
  * Pick the most readable representation of a state for the headline cell.
  *
- *   number with terms text → big number + terms as subtitle (the WHAT the
- *                            money is for — not just "$1,800")
- *   number with no terms   → big number + agent's rationale as subtitle
- *                            (the WHY)
- *   text only              → text as the headline; no subtitle
+ *   summary present, no number   → summary is the big text, state.terms goes
+ *                                  to subtitle (the long "what" line)
+ *   summary present, with number → big number, summary is the subtitle
+ *   no summary, with number      → big number, state.terms or rationale below
+ *   no summary, text-only state  → terms is the big text
  *
  * Schema-agnostic: works for monetary, grade, due-date, or any free-form
- * Pacta state shape. Falls back gracefully when fields are missing.
+ * Pacta state shape.
  */
 function positionFromState(
   state: unknown,
-  fallbackSubtitle?: string,
+  summary?: string | null,
+  fallbackSubtitle?: string | null,
 ): Position | null {
   const tiers = readStateTiers(state);
   let numeric: number | null = null;
@@ -610,14 +609,23 @@ function positionFromState(
       textValue = v.trim();
     }
   }
+  const cleanSummary = summary?.trim() || null;
 
   if (numeric !== null) {
+    // Big number wins. The summary (or terms, or rationale) becomes the
+    // small line under the number.
     return {
       kind: "number",
       value: numeric,
       formatted,
-      subtitle: textValue ?? fallbackSubtitle,
+      subtitle: cleanSummary ?? textValue ?? fallbackSubtitle ?? undefined,
     };
+  }
+  // Text-only state. Promote the summary to the headline if we have one — the
+  // long terms text is the substance, but the agent's 2-4 word summary is
+  // what reads at a glance.
+  if (cleanSummary) {
+    return { kind: "text", value: cleanSummary, subtitle: textValue ?? undefined };
   }
   if (textValue !== null) {
     return { kind: "text", value: textValue };
@@ -626,14 +634,30 @@ function positionFromState(
 }
 
 function positionFromProposal(prop: DumpProposeMsg): Position | null {
-  // Prefer the state's `terms` text as the subtitle (what the money is FOR).
-  // If state has no text, surface the agent's rationale (WHY they want it).
-  return positionFromState(prop.payload.state, prop.payload.rationale);
+  return positionFromState(
+    prop.payload.state,
+    prop.summary,
+    prop.payload.rationale,
+  );
 }
 
-function extractOutcomePosition(o: Outcome): Position | null {
-  if (o.kind === "converged") return positionFromState(o.final_state);
-  if (o.kind === "ruling") return positionFromState(o.ruling.remedy);
+function extractOutcomePosition(d: DisputeDump): Position | null {
+  const o = d.finalized?.outcome;
+  if (!o) return null;
+  if (o.kind === "converged") {
+    // The bound deal is the proposal that was Accepted. Render it like any
+    // other proposal so the cell carries the author's summary too.
+    const accepted = d.history.find(
+      (m) =>
+        (m.type === "Propose" || m.type === "CounterPropose") &&
+        m.hash === o.accepted_msg_hash,
+    );
+    if (accepted) return positionFromProposal(accepted as DumpProposeMsg);
+    return positionFromState(o.final_state);
+  }
+  if (o.kind === "ruling") {
+    return positionFromState(o.ruling.remedy);
+  }
   return null;
 }
 

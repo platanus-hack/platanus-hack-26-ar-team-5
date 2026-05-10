@@ -16,6 +16,7 @@ function ariaProposeBody(args: {
 }): MessageBody {
   return {
     type: "Propose",
+          summary: "test move",
     round: args.round,
     from_agent: args.ariaDid,
     evidence_refs: args.evidenceHashes,
@@ -38,6 +39,7 @@ function atlasCounterBody(args: {
 }): MessageBody {
   return {
     type: "CounterPropose",
+          summary: "test move",
     round: args.round,
     from_agent: args.atlasDid,
     evidence_refs: args.evidenceHashes,
@@ -64,6 +66,7 @@ function ariaCounterBody(args: {
 function acceptBody(args: { fromDid: string; round: number; targetHash: string }): MessageBody {
   return {
     type: "Accept",
+          summary: "test move",
     round: args.round,
     from_agent: args.fromDid,
     evidence_refs: [],
@@ -313,6 +316,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
         if (count === 1) {
           return {
             type: "Reveal",
+          summary: "test move",
             round,
             from_agent: agents.aria.did,
             evidence_refs: [],
@@ -333,6 +337,7 @@ describe("orchestrator (mocked) — validation rejections", () => {
           // Aria reveals same domain again — must be rejected
           return {
             type: "Reveal",
+          summary: "test move",
             round,
             from_agent: agents.aria.did,
             evidence_refs: [],

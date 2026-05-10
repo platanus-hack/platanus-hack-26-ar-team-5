@@ -9,6 +9,7 @@ import { UtilityChart } from "./utility-chart";
 import { Timeline } from "./timeline";
 import { EvidenceRail } from "./evidence-rail";
 import { OutcomeBanner } from "./outcome-banner";
+import { DagGraph } from "./dag-graph";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -147,9 +148,9 @@ export function Console() {
         seeding={seeding}
         refreshSignal={refreshSignal}
       />
-      <main className="relative flex flex-1 flex-col bg-grid">
+      <main className="relative flex min-w-0 flex-1 flex-col">
         <HeaderBar dispute={dispute} online={online} />
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="min-w-0 flex-1 overflow-y-auto px-6 py-6">
           {error && (
             <div className="mb-4 rounded-md border border-warn-red/40 bg-warn-red/10 px-4 py-2.5 text-caption text-warn-red">
               {error}
@@ -161,8 +162,9 @@ export function Console() {
             <div className="flex flex-col gap-5">
               {dispute.claim && <ClaimBanner claim={dispute.claim} />}
               <PartiesRow dispute={dispute} />
+              <DagGraph dispute={dispute} />
               <UtilityChart dispute={dispute} />
-              <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
                 <Timeline dispute={dispute} />
                 <EvidenceRail dispute={dispute} />
               </div>
@@ -228,15 +230,14 @@ function SkeletonRow({ tall }: { tall?: boolean }) {
 
 function EmptyState({ seeding }: { seeding: boolean }) {
   return (
-    <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
-      <div className="text-micro uppercase tracking-[0.22em] text-ash-gray">
-        Pacta dispute console
-      </div>
-      <div className="text-stat text-polar-white">No dispute selected</div>
-      <p className="max-w-sm text-caption text-dim">
+    <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 py-24 text-center">
+      <h2 className="t-display max-w-md font-light text-white">
+        {seeding ? "Seeding a dispute." : "Pick a dispute."}
+      </h2>
+      <p className="t-label max-w-sm text-white/55">
         {seeding
-          ? "Seeding a demo dispute — Claude is booting both sides."
-          : "Pick a dispute from the sidebar, or seed a new one to watch a live negotiation build move-by-move."}
+          ? "Claude is booting both sides. The first move appears here in a few seconds."
+          : "Or seed a new one to watch two AI agents negotiate, cite evidence, and produce a signed bundle."}
       </p>
     </div>
   );

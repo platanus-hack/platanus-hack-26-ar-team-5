@@ -1,7 +1,7 @@
 "use client";
 
 import type { DisputeDump, DumpMessage, DumpProposeMsg, AgentRole } from "./types";
-import { shortDid, partyLabel } from "./format";
+import { partyLabel, readStateTiers, shortDid } from "./format";
 
 type Props = {
   dispute: DisputeDump;
@@ -64,20 +64,24 @@ function lastProposal(messages: DumpMessage[]): DumpProposeMsg | null {
   return null;
 }
 
-function formatStateValue(state: { domain: string; tiers: Record<string, unknown> }): string {
-  // Try common domains: dollars, percentages, treatment tiers, etc.
-  const tiers = state.tiers ?? {};
-  // Pick first numeric scalar in tiers as the "headline".
-  for (const [, v] of Object.entries(tiers)) {
-    if (typeof v === "number") {
-      return formatNumber(v);
+function formatStateValue(state: unknown): string {
+  // The headline is the first scalar (number or short string) in the state's
+  // tiers. Tolerates both flat ({credit_usd, terms}) and wrapped
+  // ({domain, tiers: {...}}) shapes.
+  const entries = readStateTiers(state);
+  for (const [, v] of entries) {
+    if (typeof v === "number") return formatNumber(v);
+  }
+  for (const [, v] of entries) {
+    if (typeof v === "string") {
+      return v.length > 36 ? `${v.slice(0, 36)}…` : v;
     }
   }
-  // Fall back to the first string scalar.
-  for (const [, v] of Object.entries(tiers)) {
-    if (typeof v === "string") return v;
+  if (state && typeof state === "object" && "domain" in state) {
+    const d = (state as { domain?: unknown }).domain;
+    if (typeof d === "string") return d;
   }
-  return state.domain;
+  return "·";
 }
 
 function formatNumber(n: number): string {
@@ -131,7 +135,7 @@ function PartyCard({ view, align }: { view: PartyView; align: "left" | "right" }
           Latest proposal
         </div>
         <div className="mt-1.5 flex items-baseline gap-2 font-mono tabular text-stat-lg text-polar-white">
-          {view.lastValue ?? <span className="text-dim">—</span>}
+          {view.lastValue ?? <span className="text-dim">·</span>}
         </div>
         {view.lastUtility !== null && (
           <div className="mt-1 text-micro text-ash-gray">

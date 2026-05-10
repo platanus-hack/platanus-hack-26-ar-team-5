@@ -14,7 +14,7 @@ export function shortHash(h: string, head = 10): string {
 
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "—";
+  if (!Number.isFinite(t)) return "·";
   const diff = Math.max(0, Math.floor((now - t) / 1000));
   if (diff < 5) return "just now";
   if (diff < 60) return `${diff}s ago`;
@@ -28,7 +28,7 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
 
 export function timeOfDay(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "·";
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
@@ -44,4 +44,18 @@ export function partyLabel(role: "aria" | "atlas", scenarioId: string | null) {
 
 export function partyKind(role: "aria" | "atlas") {
   return role === "aria" ? "claimant" : "respondent";
+}
+
+/** Extract the (key, value) pairs of a DealState regardless of whether the
+ *  backend serializes it flat (`{credit_usd, terms}`) or wrapped in a
+ *  `{domain, tiers}` envelope. Always returns a stable key/value list. */
+export function readStateTiers(
+  state: unknown,
+): Array<[string, unknown]> {
+  if (!state || typeof state !== "object") return [];
+  const s = state as Record<string, unknown>;
+  if (s.tiers && typeof s.tiers === "object") {
+    return Object.entries(s.tiers as Record<string, unknown>);
+  }
+  return Object.entries(s).filter(([k]) => k !== "domain" && k !== "tiers");
 }

@@ -108,8 +108,8 @@ export function UtilityChart({ dispute }: Props) {
         </svg>
       </div>
       <div className="border-t border-line/50 px-4 py-2 text-micro text-dim">
-        Each agent&apos;s utility-for-self is monotonically non-increasing — the gap
-        closes as the deal narrows.
+        Each agent&apos;s utility-for-self is monotonically non-increasing. The
+        gap closes as the deal narrows.
       </div>
     </section>
   );

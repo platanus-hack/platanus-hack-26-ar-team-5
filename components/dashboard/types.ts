@@ -26,10 +26,18 @@ export type DumpMessageBase = {
   ref: string;
 };
 
+/** A negotiation state. Shape from backend is a flat key/value object
+ *  (e.g. `{credit_usd: 85000, terms: "..."}`). The spec also describes a
+ *  `{domain, tiers}` wrapper; we tolerate both via {@link readStateTiers}. */
+export type DealState = Record<string, unknown> & {
+  domain?: string;
+  tiers?: Record<string, unknown>;
+};
+
 export type DumpProposeMsg = DumpMessageBase & {
   type: "Propose" | "CounterPropose";
   payload: {
-    state: { domain: string; tiers: Record<string, unknown> };
+    state: DealState;
     utility_for_self: number;
     rationale: string;
   };
@@ -62,6 +70,44 @@ export type DumpMessage =
   | DumpRevealMsg
   | DumpEscalateMsg;
 
+export type RulingOutcome =
+  | "claimant_prevails"
+  | "claimant_partial"
+  | "respondent_prevails"
+  | "abstain";
+
+export type DumpVote = {
+  type: "Vote";
+  juror: "Aequitas" | "Utilis" | "Velox" | string;
+  juror_did: string;
+  juror_model: string;
+  outcome: RulingOutcome;
+  rationale: string;
+  cited_evidence_hashes: string[];
+  confidence: number;
+  timestamp: string;
+};
+
+export type SignedDump<T> = T & {
+  signature?: { type: string; jws: string };
+  hash?: string;
+  ref?: string;
+};
+
+export type DumpSignedVote = SignedDump<DumpVote>;
+
+export type DumpRuling = {
+  type: "Ruling";
+  outcome: RulingOutcome;
+  remedy: DealState;
+  cited_votes: string[];
+  confidence: number;
+  rationale: string;
+  timestamp: string;
+};
+
+export type DumpSignedRuling = SignedDump<DumpRuling>;
+
 export type Bundle = {
   type: "Bundle";
   scenario: string;
@@ -71,10 +117,10 @@ export type Bundle = {
   outcome:
     | {
         kind: "converged";
-        final_state: { domain: string; tiers: Record<string, unknown> };
+        final_state: DealState;
         accepted_msg_hash: string;
       }
-    | { kind: "ruling"; votes: unknown[]; ruling: unknown }
+    | { kind: "ruling"; votes: DumpSignedVote[]; ruling: DumpSignedRuling }
     | { kind: "deadline" };
   created_at: string;
   root_hash: string;
@@ -94,7 +140,7 @@ export type DisputeDump = {
   pending_feedback: string[];
   evidence: DumpEvidence[];
   finalized: Bundle | null;
-  ruling: { votes: unknown[]; ruling: unknown } | null;
+  ruling: { votes: DumpSignedVote[]; ruling: DumpSignedRuling } | null;
   references_help?: { messages: string; evidence: string };
 };
 

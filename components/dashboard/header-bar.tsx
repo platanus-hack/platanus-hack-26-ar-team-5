@@ -10,17 +10,17 @@ type Props = {
 
 export function HeaderBar({ dispute, online }: Props) {
   return (
-    <header className="border-b border-line/70 bg-midnight-void/80 px-6 py-4 backdrop-blur-md">
-      <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between">
+    <header className="border-b border-line/70 bg-midnight-void/60 px-6 py-4 backdrop-blur-md">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-micro uppercase tracking-[0.22em] text-ash-gray">
+          <span className="t-body uppercase tracking-[0.22em] text-ash-gray">
             Dispute
           </span>
           <span className="font-mono text-body text-polar-white">
-            {dispute?.dispute_id ?? "—"}
+            {dispute?.dispute_id ?? "·"}
           </span>
           {dispute && (
-            <span className="hidden text-micro text-dim md:inline">
+            <span className="hidden t-body text-dim md:inline">
               · {dispute.scenario_id ?? "schema-less"}
             </span>
           )}
@@ -32,7 +32,7 @@ export function HeaderBar({ dispute, online }: Props) {
         </div>
       </div>
       {dispute?.finalized && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-micro text-dim">
+        <div className="mt-3 flex flex-wrap items-center gap-2 t-body text-dim">
           <span className="text-ash-gray">root_hash</span>
           <span className="font-mono text-bone">
             sha256:{shortHash(dispute.finalized.root_hash, 32)}…
@@ -93,11 +93,11 @@ function TurnBadge({ dispute }: { dispute: DisputeDump }) {
       className={`inline-flex items-center gap-1.5 rounded-pill border px-2 py-0.5 text-micro tracking-[0.05em] ${tone}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full pacta-pulse ${
+        className={`h-1.5 w-1.5 rounded-full ${
           turn === "aria" ? "bg-aria" : "bg-atlas"
         }`}
       />
-      turn · {turn}
+      {turn} thinking
     </span>
   );
 }
@@ -113,9 +113,9 @@ function ConnectionBadge({ online }: { online: boolean }) {
       ].join(" ")}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${online ? "bg-pulse-green pacta-pulse" : "bg-warn-red"}`}
+        className={`h-1.5 w-1.5 rounded-full ${online ? "bg-pulse-green" : "bg-warn-red"}`}
       />
-      {online ? "live feed" : "offline"}
+      {online ? "live" : "offline"}
     </span>
   );
 }

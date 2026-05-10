@@ -8,25 +8,34 @@ type Props = {
 };
 
 const TIER_TONE: Record<EvidenceTier, { label: string; cls: string }> = {
-  S: { label: "S · signed", cls: "border-amber-glow/40 bg-amber-glow/10 text-amber-glow" },
-  A: { label: "A · public", cls: "border-pulse-green/30 bg-pulse-green/10 text-pulse-green" },
-  B: { label: "B · self", cls: "border-line bg-graphite/60 text-ash-gray" },
-  C: { label: "C · narrative", cls: "border-line/70 bg-graphite/40 text-dim" },
+  S: { label: "S", cls: "border-amber-glow/40 bg-amber-glow/10 text-amber-glow" },
+  A: { label: "A", cls: "border-pulse-green/30 bg-pulse-green/10 text-pulse-green" },
+  B: { label: "B", cls: "border-line bg-graphite/60 text-ash-gray" },
+  C: { label: "C", cls: "border-line/70 bg-graphite/40 text-dim" },
+};
+
+const TIER_DESC: Record<EvidenceTier, string> = {
+  S: "Crypto self-verifying",
+  A: "Public attestation",
+  B: "Self-emitted, signed",
+  C: "Argumentation only",
 };
 
 export function EvidenceRail({ dispute }: Props) {
   const ariaDid = dispute.agents.aria;
   const items = dispute.evidence;
   return (
-    <section className="rounded-lg border border-line/70 bg-graphite/40">
-      <div className="flex items-center justify-between border-b border-line/70 px-4 py-2.5">
-        <div className="text-micro uppercase tracking-[0.2em] text-ash-gray">
+    <section className="rounded-lg border border-line/70 bg-graphite/30">
+      <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
+        <div className="t-body uppercase tracking-[0.2em] text-ash-gray">
           Evidence pool
         </div>
-        <div className="text-micro text-dim">{items.length} items</div>
+        <div className="t-body text-dim">
+          {items.length} {items.length === 1 ? "item" : "items"}
+        </div>
       </div>
       {items.length === 0 ? (
-        <div className="px-4 py-6 text-center text-caption text-dim">
+        <div className="px-4 py-8 text-center t-body text-dim">
           No evidence submitted yet.
         </div>
       ) : (
@@ -44,42 +53,56 @@ function EvidenceRow({ e, ariaDid }: { e: DumpEvidence; ariaDid: string }) {
   const tone = TIER_TONE[e.tier] ?? TIER_TONE.B;
   const role: "aria" | "atlas" = e.submitter === ariaDid ? "aria" : "atlas";
   return (
-    <li className="flex items-start gap-3 px-4 py-3">
-      <div className="flex w-12 flex-col gap-0.5 pt-0.5 text-micro">
-        <span className="font-mono tabular text-bone">{e.ref}</span>
-      </div>
-      <div className="flex flex-1 flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-2">
+    <li>
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-2.5 transition-colors hover:bg-graphite/40">
+          <span className="t-body text-dim transition-transform group-open:rotate-90">
+            ›
+          </span>
+
+          {/* Tier pill */}
           <span
-            className={`inline-flex items-center rounded-pill border px-2 py-0.5 text-micro tracking-[0.05em] ${tone.cls}`}
+            className={`inline-flex h-6 w-6 flex-none items-center justify-center rounded-full border font-mono text-[11px] font-semibold ${tone.cls}`}
+            title={TIER_DESC[e.tier]}
           >
             {tone.label}
           </span>
+
+          {/* Submitter dot */}
           <span
-            className={`inline-flex items-center gap-1.5 rounded-pill border px-2 py-0.5 text-micro tracking-[0.05em] ${
-              role === "aria"
-                ? "border-aria/30 bg-aria/5 text-aria"
-                : "border-atlas/30 bg-atlas/5 text-atlas"
+            className={`h-2 w-2 flex-none rounded-full ${
+              role === "aria" ? "bg-aria" : "bg-atlas"
             }`}
-          >
-            <span
-              className={`h-1 w-1 rounded-full ${
-                role === "aria" ? "bg-aria" : "bg-atlas"
-              }`}
-            />
-            {role}
+            aria-label={role}
+          />
+
+          {/* Title */}
+          <span className="t-label flex-1 truncate text-bone">{e.title}</span>
+
+          {/* Ref */}
+          <span className="hidden font-mono t-body text-dim sm:inline">
+            {e.ref}
           </span>
-          <span className="font-mono text-caption text-polar-white">
-            {e.title}
-          </span>
-          <span className="ml-auto font-mono text-micro text-dim">
-            #{shortHash(e.hash, 10)}
-          </span>
+        </summary>
+
+        <div className="space-y-3 border-t border-line/40 bg-graphite/20 px-4 py-4">
+          {e.body && (
+            <p className="t-label leading-[22px] text-bone">{e.body}</p>
+          )}
+          <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 t-body">
+            <dt className="text-ash-gray/70">tier</dt>
+            <dd className="text-bone">
+              {tone.label} · {TIER_DESC[e.tier]}
+            </dd>
+            <dt className="text-ash-gray/70">submitter</dt>
+            <dd className="text-bone">{role}</dd>
+            <dt className="text-ash-gray/70">hash</dt>
+            <dd className="font-mono text-bone">#{shortHash(e.hash, 16)}</dd>
+            <dt className="text-ash-gray/70">ref</dt>
+            <dd className="font-mono text-bone">{e.ref}</dd>
+          </dl>
         </div>
-        {e.body && (
-          <p className="line-clamp-2 text-caption text-ash-gray">{e.body}</p>
-        )}
-      </div>
+      </details>
     </li>
   );
 }

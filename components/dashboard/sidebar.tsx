@@ -52,7 +52,7 @@ export function Sidebar({
   const disputes = data?.disputes ?? [];
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-line/70 bg-midnight-void/60 lg:w-[320px]">
+    <aside className="flex w-full flex-col border-r border-line/70 bg-midnight-void/60 lg:sticky lg:top-0 lg:h-screen lg:w-[320px]">
       <SidebarHeader />
       <SeedRow
         scenarios={scenarios}
@@ -74,23 +74,26 @@ export function Sidebar({
 
 function SidebarHeader() {
   return (
-    <div className="border-b border-line/70 px-5 py-4">
-      <div className="flex items-center gap-2.5">
-        <span className="relative flex h-2 w-2 items-center justify-center">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-pulse-green/60 pacta-ping" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-pulse-green" />
-        </span>
-        <div className="text-[15px] font-semibold tracking-tight text-polar-white">
-          Pacta
-        </div>
-        <span className="ml-auto text-micro uppercase tracking-[0.18em] text-ash-gray">
+    <div className="border-b border-line/70 px-5 py-5">
+      <a href="/" className="flex items-center gap-2 transition-opacity hover:opacity-75">
+        <LogoMark className="h-5 w-5 text-polar-white" />
+        <span className="t-label font-medium text-polar-white">Pacta</span>
+        <span className="ml-auto t-body uppercase tracking-[0.18em] text-ash-gray">
           Console
         </span>
-      </div>
-      <div className="mt-1 text-micro text-dim">
-        Dispute observability — live feed
-      </div>
+      </a>
+      <p className="mt-2 t-body text-dim">
+        Live signed-message feed across active disputes.
+      </p>
     </div>
+  );
+}
+
+function LogoMark({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 256 256" className={className} fill="currentColor" aria-hidden="true">
+      <path d="M 0 128 C 70.692 128 128 185.308 128 256 L 64 256 C 64 220.654 35.346 192 0 192 Z M 256 192 C 220.654 192 192 220.654 192 256 L 128 256 C 128 185.308 185.308 128 256 128 Z M 128 0 C 128 70.692 70.692 128 0 128 L 0 64 C 35.346 64 64 35.346 64 0 Z M 192 0 C 192 35.346 220.654 64 256 64 L 256 128 C 185.308 128 128 70.692 128 0 Z" />
+    </svg>
   );
 }
 
@@ -135,7 +138,7 @@ function SeedRow({
         </button>
       </div>
       <div className="mt-2 text-micro text-dim">
-        Both sides driven by Claude. Watch the negotiation build live.
+        Both sides driven by Claude. Watch the negotiation build live, move by move.
       </div>
     </div>
   );
@@ -279,10 +282,15 @@ function StatusBadge({ status }: { status: Status }) {
 
 function SidebarFooter() {
   return (
-    <div className="border-t border-line/70 px-5 py-3 text-micro text-dim">
-      <div className="flex items-center justify-between">
-        <span>signed · ed25519</span>
-        <span className="font-mono">jcs · sha-256</span>
+    <div className="border-t border-line/70 px-5 py-3 t-body text-dim">
+      <div className="flex items-center justify-between font-mono">
+        <span>ed25519 · jcs · sha-256</span>
+        <a
+          href="/"
+          className="text-ash-gray transition-colors hover:text-polar-white"
+        >
+          ↑ landing
+        </a>
       </div>
     </div>
   );

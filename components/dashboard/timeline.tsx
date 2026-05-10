@@ -10,64 +10,57 @@ import type {
   DumpProposeMsg,
   DumpRevealMsg,
 } from "./types";
-import { shortHash, timeOfDay } from "./format";
+import { readStateTiers, shortHash, timeOfDay } from "./format";
 
 type Props = {
   dispute: DisputeDump;
 };
 
-const TYPE_TONE: Record<DumpMessage["type"], { label: string; cls: string }> = {
-  Propose: {
-    label: "Propose",
-    cls: "border-aria/30 bg-aria/5 text-aria",
-  },
-  CounterPropose: {
-    label: "Counter",
-    cls: "border-atlas/30 bg-atlas/5 text-atlas",
-  },
-  Critique: {
-    label: "Critique",
-    cls: "border-warn-red/30 bg-warn-red/5 text-warn-red",
-  },
-  Accept: {
-    label: "Accept",
-    cls: "border-amber-glow/30 bg-amber-glow/5 text-amber-glow",
-  },
-  Reveal: {
-    label: "Reveal",
-    cls: "border-pulse-green/30 bg-pulse-green/5 text-pulse-green",
-  },
-  Escalate: {
-    label: "Escalate",
-    cls: "border-warn-red/40 bg-warn-red/10 text-warn-red",
-  },
+/** Minimal tone per primitive. Same family, just swapped accent dot. */
+const TYPE_LABEL: Record<DumpMessage["type"], string> = {
+  Propose: "Propose",
+  CounterPropose: "Counter",
+  Critique: "Critique",
+  Reveal: "Reveal",
+  Accept: "Accept",
+  Escalate: "Escalate",
 };
 
 export function Timeline({ dispute }: Props) {
   const items = dispute.history;
   const ariaDid = dispute.agents.aria;
   return (
-    <section className="rounded-lg border border-line/70 bg-graphite/40">
-      <div className="flex items-center justify-between border-b border-line/70 px-4 py-2.5">
-        <div className="text-micro uppercase tracking-[0.2em] text-ash-gray">
+    <section className="rounded-lg border border-line/70 bg-graphite/30">
+      <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
+        <div className="t-body uppercase tracking-[0.2em] text-ash-gray">
           Negotiation timeline
         </div>
-        <div className="flex items-center gap-2 text-micro text-dim">
-          <span>{items.length} moves</span>
+        <div className="t-body text-dim">
+          {items.length} {items.length === 1 ? "move" : "moves"}
           {dispute.pending_feedback.length > 0 && !dispute.finalized && (
-            <span className="text-warn-red">
-              · {dispute.pending_feedback.length} feedback waiting
+            <span className="ml-2 text-warn-red">
+              · {dispute.pending_feedback.length} feedback
             </span>
           )}
         </div>
       </div>
       {items.length === 0 ? (
-        <Empty />
+        <div className="px-4 py-8 text-center t-body text-dim">
+          No moves yet. The first Propose appears here as soon as Aria opens.
+        </div>
       ) : (
         <ol className="divide-y divide-line/50">
-          {items.map((m) => {
+          {items.map((m, i) => {
             const role: AgentRole = m.from_agent === ariaDid ? "aria" : "atlas";
-            return <TimelineRow key={m.hash} m={m} role={role} />;
+            const defaultOpen = i === items.length - 1;
+            return (
+              <TimelineRow
+                key={m.hash}
+                m={m}
+                role={role}
+                defaultOpen={defaultOpen}
+              />
+            );
           })}
         </ol>
       )}
@@ -75,100 +68,94 @@ export function Timeline({ dispute }: Props) {
   );
 }
 
-function Empty() {
+function TimelineRow({
+  m,
+  role,
+  defaultOpen,
+}: {
+  m: DumpMessage;
+  role: AgentRole;
+  defaultOpen: boolean;
+}) {
   return (
-    <div className="px-4 py-8 text-center text-caption text-dim">
-      No moves yet — the first Propose will appear here as soon as Aria opens.
-    </div>
-  );
-}
+    <li>
+      <details className="group" open={defaultOpen}>
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-2.5 transition-colors hover:bg-graphite/40">
+          {/* Caret */}
+          <span className="t-body text-dim transition-transform group-open:rotate-90">
+            ›
+          </span>
 
-function TimelineRow({ m, role }: { m: DumpMessage; role: AgentRole }) {
-  const tone = TYPE_TONE[m.type];
-  return (
-    <li
-      className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 px-4 py-3 pacta-row-in"
-      style={{ animationDelay: "0ms" }}
-    >
-      <div className="flex flex-col gap-0.5 pt-0.5">
-        <span className="font-mono text-caption tabular text-bone">
-          {m.ref}
-        </span>
-        <span className="font-mono text-micro text-dim tabular">
-          r{m.round}
-        </span>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-2">
+          {/* Agent dot */}
           <span
-            className={`inline-flex items-center gap-1.5 rounded-pill border px-2 py-0.5 text-micro tracking-[0.05em] ${tone.cls}`}
-          >
-            <span
-              className={`h-1 w-1 rounded-full ${
-                role === "aria" ? "bg-aria" : "bg-atlas"
-              }`}
-            />
-            {role}
+            className={`h-2 w-2 flex-none rounded-full ${
+              role === "aria" ? "bg-aria" : "bg-atlas"
+            }`}
+            aria-label={role}
+          />
+
+          {/* Type */}
+          <span className="t-label w-[78px] flex-none text-polar-white">
+            {TYPE_LABEL[m.type]}
           </span>
-          <span className="font-mono text-micro tracking-[0.04em] text-bone">
-            {tone.label}
+
+          {/* Headline (one short signal per primitive) */}
+          <span className="t-label flex-1 truncate text-bone">
+            <Headline m={m} />
           </span>
-          <RowHeadline m={m} />
-          <span className="ml-auto font-mono text-micro text-dim tabular">
-            {timeOfDay(m.timestamp)}
+
+          {/* Refs (right side) */}
+          <span className="hidden font-mono t-body text-dim sm:flex sm:items-center sm:gap-3">
+            <span>{m.ref}</span>
+            <span className="text-ash-gray/60">r{m.round}</span>
+            <span>{timeOfDay(m.timestamp)}</span>
           </span>
+        </summary>
+
+        <div className="grid grid-cols-1 gap-4 border-t border-line/40 bg-graphite/20 px-4 py-4 sm:grid-cols-[1fr_220px]">
+          <Body m={m} />
+          <RefMatrix m={m} />
         </div>
-        <RowBody m={m} />
-        <RowFootRefs m={m} />
-      </div>
+      </details>
     </li>
   );
 }
 
-function RowHeadline({ m }: { m: DumpMessage }) {
+function Headline({ m }: { m: DumpMessage }) {
   if (m.type === "Propose" || m.type === "CounterPropose") {
-    const headline = formatHeadline((m as DumpProposeMsg).payload.state);
-    if (headline) {
-      return (
-        <span className="font-mono text-caption tabular text-polar-white">
-          {headline}
-          <span className="ml-2 text-micro text-dim">
-            u={((m as DumpProposeMsg).payload.utility_for_self).toFixed(2)}
-          </span>
-        </span>
-      );
-    }
+    const head = formatHeadline((m as DumpProposeMsg).payload.state);
+    const u = (m as DumpProposeMsg).payload.utility_for_self.toFixed(2);
     return (
-      <span className="font-mono text-micro text-dim">
-        u={((m as DumpProposeMsg).payload.utility_for_self).toFixed(2)}
-      </span>
+      <>
+        <span className="font-mono">{head}</span>
+        <span className="ml-2 text-dim">u={u}</span>
+      </>
     );
   }
   if (m.type === "Reveal") {
-    return (
-      <span className="font-mono text-caption text-polar-white">
-        domain · {(m as DumpRevealMsg).payload.domain}
-      </span>
-    );
+    const d = (m as DumpRevealMsg).payload.domain;
+    return <span className="font-mono">domain · {d}</span>;
   }
   if (m.type === "Accept") {
+    const t = (m as DumpAcceptMsg).payload.target_msg_hash;
     return (
-      <span className="font-mono text-caption text-amber-glow">
-        target · #{shortHash((m as DumpAcceptMsg).payload.target_msg_hash, 8)}
+      <span className="font-mono text-amber-glow">
+        accepts #{shortHash(t, 8)}
       </span>
     );
   }
   if (m.type === "Critique") {
+    const t = (m as DumpCritiqueMsg).payload.target_msg_hash;
     return (
-      <span className="font-mono text-caption text-ash-gray">
-        target · #{shortHash((m as DumpCritiqueMsg).payload.target_msg_hash, 8)}
+      <span className="font-mono text-ash-gray">
+        targets #{shortHash(t, 8)}
       </span>
     );
   }
-  return null;
+  return <span className="text-dim">·</span>;
 }
 
-function RowBody({ m }: { m: DumpMessage }) {
+function Body({ m }: { m: DumpMessage }) {
   let text: string | null = null;
   if (m.type === "Propose" || m.type === "CounterPropose") {
     text = (m as DumpProposeMsg).payload.rationale;
@@ -181,38 +168,43 @@ function RowBody({ m }: { m: DumpMessage }) {
   } else if (m.type === "Escalate") {
     text = (m as DumpEscalateMsg).payload.rationale;
   }
-  if (!text) return null;
-  return <p className="text-caption text-ash-gray">{text}</p>;
+  if (!text) {
+    return <p className="t-body text-dim">No rationale recorded for this move.</p>;
+  }
+  return <p className="t-label leading-[22px] text-bone">{text}</p>;
 }
 
-function RowFootRefs({ m }: { m: DumpMessage }) {
-  const refs: Array<{ k: string; v: string }> = [];
-  refs.push({ k: "hash", v: `#${shortHash(m.hash, 10)}` });
+function RefMatrix({ m }: { m: DumpMessage }) {
+  const rows: Array<{ k: string; v: string }> = [];
+  rows.push({ k: "hash", v: `#${shortHash(m.hash, 14)}` });
   if (m.parent_refs.length) {
-    const parents = m.parent_refs
-      .map((p) => `#${shortHash(p, 6)}`)
-      .join(" ");
-    refs.push({ k: "parent", v: parents });
+    rows.push({
+      k: m.parent_refs.length === 1 ? "parent" : "parents",
+      v: m.parent_refs.map((p) => `#${shortHash(p, 8)}`).join("  "),
+    });
   }
   if (m.evidence_refs.length) {
-    const evs = m.evidence_refs.map((e) => `#${shortHash(e, 6)}`).join(" ");
-    refs.push({ k: "evidence", v: evs });
+    rows.push({
+      k: "evidence",
+      v: m.evidence_refs.map((e) => `#${shortHash(e, 8)}`).join("  "),
+    });
   }
+  rows.push({ k: "round", v: `r${m.round}` });
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-micro text-dim">
-      {refs.map((r) => (
-        <span key={r.k}>
-          <span className="text-ash-gray/60">{r.k}</span>{" "}
-          <span className="text-bone">{r.v}</span>
-        </span>
+    <dl className="space-y-1.5 self-start">
+      {rows.map((r) => (
+        <div key={r.k} className="grid grid-cols-[64px_1fr] gap-2 t-body">
+          <dt className="text-ash-gray/70">{r.k}</dt>
+          <dd className="font-mono text-bone">{r.v}</dd>
+        </div>
       ))}
-    </div>
+    </dl>
   );
 }
 
-function formatHeadline(state: { domain: string; tiers: Record<string, unknown> }): string {
-  const tiers = state.tiers ?? {};
-  for (const [k, v] of Object.entries(tiers)) {
+function formatHeadline(state: unknown): string {
+  const entries = readStateTiers(state);
+  for (const [k, v] of entries) {
     if (typeof v === "number") {
       const formatted =
         Math.abs(v) >= 1000
@@ -223,8 +215,13 @@ function formatHeadline(state: { domain: string; tiers: Record<string, unknown> 
       return `${k}=${formatted}`;
     }
     if (typeof v === "string") {
-      return `${k}=${v}`;
+      const trimmed = v.length > 32 ? `${v.slice(0, 32)}…` : v;
+      return `${k}=${trimmed}`;
     }
   }
-  return state.domain;
+  if (state && typeof state === "object" && "domain" in state) {
+    const d = (state as { domain?: unknown }).domain;
+    if (typeof d === "string") return d;
+  }
+  return "·";
 }

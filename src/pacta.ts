@@ -122,6 +122,9 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
       tribunal: agents.tribunal.did,
     },
     tribunal_mode,
+    // CLI demo: both sides Claude-driven from a scenario template, no real
+    // human-mapped opener. Keep null so audit consumers don't misattribute.
+    opened_by_role: null,
     evidence: pool.signed,
     messages: result.value.history,
     outcome: bundleOutcome,

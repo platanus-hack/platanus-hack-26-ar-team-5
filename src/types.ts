@@ -168,6 +168,13 @@ export type Bundle = {
   agents: { aria: string; atlas: string; tribunal: string }; // DIDs
   /** Pre-committed dispute-resolution mode (set at open, immutable). */
   tribunal_mode: TribunalMode;
+  /** Which role called open_dispute and chose the tribunal_mode. The mode is
+   *  asymmetric: an opener picking `none` offloads risk onto the joiner. We
+   *  bake (role, mode) into the bundle so any downstream auditor can score
+   *  whether a given DID systematically opens disputes under `none` to
+   *  disadvantage their counterparty. `null` for demo-seeded disputes — the
+   *  operator picked the mode, not a real party, so attribution is undefined. */
+  opened_by_role: "aria" | "atlas" | null;
   evidence: SignedEvidence[];
   messages: SignedMessage[];
   outcome:

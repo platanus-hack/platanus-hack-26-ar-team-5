@@ -231,6 +231,7 @@ function ModeBanner({
   ) => Promise<void>;
 }) {
   const mode = dispute.tribunal_mode;
+  const opener = dispute.opened_by_role;
   const finalized = !!dispute.finalized;
   const tone =
     mode === "binding"
@@ -240,6 +241,16 @@ function ModeBanner({
     mode === "binding"
       ? "Binding tribunal — if these two don't converge, the 3-LLM Tribunal arbitrates."
       : "No tribunal — parties opted out at open. If they don't converge, bundle ends as deadline.";
+  // Hold-out attribution: when the opener picked NONE, surface that
+  // asymmetry explicitly so a watching party / auditor sees who chose to
+  // remove the failsafe. Demo-seeded disputes have opened_by_role=null and
+  // skip this attribution (no real party picked the mode).
+  const attribution =
+    opener && mode === "none"
+      ? `${opener} opened with NONE — joiner had no failsafe.`
+      : opener
+        ? `${opener} opened.`
+        : null;
   return (
     <section
       className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 ${tone}`}
@@ -248,6 +259,11 @@ function ModeBanner({
         tribunal_mode · {mode}
       </span>
       <span className="t-body text-bone">{summary}</span>
+      {attribution && (
+        <span className="font-mono text-micro uppercase tracking-[0.14em] text-ash-gray">
+          · {attribution}
+        </span>
+      )}
       {!finalized && (
         <div className="ml-auto flex items-center gap-2">
           <WithdrawButton

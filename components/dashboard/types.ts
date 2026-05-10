@@ -122,6 +122,7 @@ export type Bundle = {
   scenario: string;
   agents: { aria: string; atlas: string; tribunal: string };
   tribunal_mode: TribunalMode;
+  opened_by_role: AgentRole | null;
   evidence: unknown[];
   messages: unknown[];
   outcome:
@@ -154,6 +155,7 @@ export type DisputeDump = {
   current_round: number;
   max_rounds: number;
   tribunal_mode: TribunalMode;
+  opened_by_role: AgentRole | null;
   history: DumpMessage[];
   pending_feedback: string[];
   evidence: DumpEvidence[];
@@ -175,6 +177,7 @@ export type DisputeSummary = {
   finalized: boolean;
   outcome_kind: "converged" | "ruling" | "deadline" | "withdrawn" | null;
   tribunal_mode: TribunalMode;
+  opened_by_role: AgentRole | null;
   controllers: Record<AgentRole, "external" | "claude">;
   agents: { aria: string; atlas: string };
 };

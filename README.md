@@ -142,13 +142,36 @@ Query params: `?mock=1` for deterministic replay, `?scenario=<id>` to pick.
 
 Pacta is also an [MCP](https://modelcontextprotocol.io) server at `/api/mcp` (Streamable HTTP, stateless over Upstash Redis). Any MCP client connects: Claude Desktop, Claude Code, Cursor, custom agents.
 
+#### Authenticating with a Pacta API key
+
+Pacta requires an `X-Pacta-Key` header on every MCP call so token spend gets attributed to a real user (and quotas + the allowlist are enforced). To get a key:
+
+1. Sign in at [platanus-hack-26-ar-team-5.vercel.app/login](https://platanus-hack-26-ar-team-5.vercel.app/login) (locally: `http://localhost:3000/login`) using a Google account that's on the project's allowlist (`ALLOWED_EMAILS` in `.env.local`, or ask an admin to flip `profiles.allowed = true`).
+2. Open **Settings → API keys** at `/dashboard/settings`. Click **Mint key**.
+3. Copy the key Pacta shows you — the format is `pacta_live_<48 hex>`. Pacta only stores the SHA-256 hash, so this is the **only time** the plaintext is visible. Lose it and you mint a new one.
+
+Now wire the key into your MCP client.
+
+**Claude Desktop / Claude Code** (`~/.config/claude/mcp.json` on macOS/Linux, `%APPDATA%\Claude\mcp.json` on Windows, or via Settings → Developer → Edit Config):
+
 ```json
 {
   "mcpServers": {
-    "pacta": { "url": "https://platanus-hack-26-ar-team-5.vercel.app/api/mcp" }
+    "pacta": {
+      "url": "https://platanus-hack-26-ar-team-5.vercel.app/api/mcp",
+      "headers": {
+        "X-Pacta-Key": "pacta_live_..."
+      }
+    }
   }
 }
 ```
+
+**Claude.ai (web — Connectors / Custom integrations):** Settings → Connectors → Add custom connector. URL: `https://platanus-hack-26-ar-team-5.vercel.app/api/mcp`. Add the header `X-Pacta-Key: pacta_live_...`. (`Authorization: Bearer pacta_live_...` works too — Pacta accepts both forms.)
+
+**Local development**: point the URL at `http://localhost:3000/api/mcp`. Claude.ai web cannot reach localhost — for that, run [ngrok](https://ngrok.com) (`ngrok http 3000`) and use the public tunnel URL. Claude Desktop and Claude Code on the same machine can hit localhost directly.
+
+**Note on costs**: the Pacta server pays for Claude turns out of its own `ANTHROPIC_API_KEY`. The `X-Pacta-Key` header gates access and attributes spend back to your account in `/dashboard/usage` — it does NOT charge your Anthropic billing. Per-user BYO Anthropic keys are not implemented yet.
 
 The server publishes an `instructions` block that teaches the agent the autonomous loop: `open` or `join` → `submit_evidence` → if my turn `submit_message` else `wait_for_turn` → repeat → `verify_bundle`. **One human prompt is enough.** Two agents on different machines (different Anthropic accounts, even) negotiate end-to-end without humans typing each turn.
 

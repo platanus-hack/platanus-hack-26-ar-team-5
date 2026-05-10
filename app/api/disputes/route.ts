@@ -6,6 +6,7 @@ import {
 import { advanceClaudeTurns } from "../../../src/dispute_engine";
 import { listScenarios } from "../../../src/scenarios/index";
 import { withApiAuthAppRouter } from "../../../lib/auth/api-auth";
+import { runWithAttribution } from "../../../lib/auth/usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +27,16 @@ export const GET = withApiAuthAppRouter(async () => {
  *  alive until the negotiation terminates (convergence, ruling, or deadline)
  *  — state is persisted between every Claude turn, so observers polling
  *  GET /api/disputes/:id see progress in real time even if the stream
- *  consumer disconnects. */
-export const POST = withApiAuthAppRouter(async (req: Request) => {
+ *  consumer disconnects.
+ *
+ *  AsyncLocalStorage caveat: the engine runs inside a ReadableStream's
+ *  `start()` callback, which executes AFTER this handler has returned the
+ *  Response object — meaning it's outside the ALS scope set up by the auth
+ *  wrapper. Without re-entering the scope, `recordClaudeTurn` calls inside
+ *  `claude_driver` see no attribution and silently no-op (zero token /
+ *  cost rows in `usage_events`). We rebind the attribution explicitly so
+ *  per-turn token spend is recorded against the originating user. */
+export const POST = withApiAuthAppRouter(async (req: Request, ctx) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json(
       {
@@ -74,6 +83,16 @@ export const POST = withApiAuthAppRouter(async (req: Request) => {
     tribunal_mode,
   });
 
+  // Capture attribution data while still in the wrapper's ALS scope so we can
+  // re-enter inside the stream callback (see header comment).
+  const url = new URL(req.url);
+  const attribution = {
+    user_id: ctx.auth.profile.id,
+    api_key_id: ctx.auth.api_key?.id ?? null,
+    endpoint: url.pathname,
+    method: (req.method ?? "POST").toUpperCase(),
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const write = (obj: unknown) => {
@@ -86,9 +105,11 @@ export const POST = withApiAuthAppRouter(async (req: Request) => {
           scenario: { id: scenario.id, name: scenario.name },
           created_at,
         });
-        const live = await getDispute(dispute_id);
-        const events = await advanceClaudeTurns(live);
-        for (const ev of events) write(ev);
+        await runWithAttribution(attribution, async () => {
+          const live = await getDispute(dispute_id);
+          const events = await advanceClaudeTurns(live);
+          for (const ev of events) write(ev);
+        });
         write({ kind: "stream.end" });
       } catch (err) {
         write({

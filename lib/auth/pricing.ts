@@ -6,9 +6,15 @@
 
 type Pricing = { input_per_mtok: number; output_per_mtok: number };
 
+// Pacta itself uses claude-opus-4-5 / claude-sonnet-4-5 / claude-haiku-4-5
+// (see src/anthropic.ts). Without explicit entries for those exact ids, the
+// startsWith fallback below keeps falling through to the FALLBACK Sonnet rate,
+// silently undercounting Opus turns by 5x. Each model used in production must
+// have its own entry — newer aliases are listed for future-proofing.
 const PRICING: Record<string, Pricing> = {
   "claude-opus-4-7": { input_per_mtok: 15, output_per_mtok: 75 },
   "claude-opus-4-6": { input_per_mtok: 15, output_per_mtok: 75 },
+  "claude-opus-4-5": { input_per_mtok: 15, output_per_mtok: 75 },
   "claude-sonnet-4-6": { input_per_mtok: 3, output_per_mtok: 15 },
   "claude-sonnet-4-5": { input_per_mtok: 3, output_per_mtok: 15 },
   "claude-haiku-4-5": { input_per_mtok: 1, output_per_mtok: 5 },

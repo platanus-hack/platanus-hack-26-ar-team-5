@@ -1,9 +1,15 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { getClient, MODELS } from "./anthropic";
 import { signDoc, docHash } from "./sign";
 import type { AgentBook } from "./agents";
 import type { EvidencePool } from "./fixtures";
 import type { Scenario } from "./scenarios/index";
+import {
+  aggregateRemedy,
+  defineStateSchema,
+  type StateSchemaResult,
+} from "./state_schema";
 import type {
   DealState,
   Ruling,
@@ -62,60 +68,109 @@ Hard rules:
   },
 ];
 
-const VOTE_TOOL = {
-  name: "cast_vote",
-  description: "Cast your vote on the dispute, citing specific evidence by hash.",
-  input_schema: {
-    type: "object",
-    properties: {
-      outcome: {
-        type: "string",
-        enum: [
-          "claimant_prevails",
-          "claimant_partial",
-          "respondent_prevails",
-          "abstain",
-        ],
-      },
-      remedy_credit_usd: {
-        type: "number",
-        description:
-          "Suggested USD credit/refund the respondent should provide. 0 if respondent_prevails.",
-      },
-      remedy_terms: {
-        type: "string",
-        description: "Short summary of the suggested remedy terms.",
-      },
-      rationale: {
-        type: "string",
-        description: "Why this outcome — anchored in cited evidence.",
-      },
-      cited_evidence_hashes: {
-        type: "array",
-        items: { type: "string" },
-        description: "sha256:... hashes of evidence items you relied on.",
-      },
-      confidence: {
-        type: "number",
-        description: "Your confidence in [0,1].",
-      },
+/** Default schema used when no scenario is supplied (legacy / schema-less
+ *  disputes). Matches the historical {credit_usd, terms} shape so existing
+ *  tests / consumers keep working. */
+const DEFAULT_LEGACY_SCHEMA: StateSchemaResult = defineStateSchema({
+  domain: "USD-credit",
+  description: "Legacy fallback: USD credit + terms string.",
+  fields: {
+    credit_usd: {
+      zod: z.number().min(0),
+      aggregation: "median",
+      description: "USD amount changing hands. 0 if no money moves.",
     },
-    required: [
-      "outcome",
-      "remedy_credit_usd",
-      "remedy_terms",
-      "rationale",
-      "cited_evidence_hashes",
-      "confidence",
-    ],
+    terms: {
+      zod: z.string(),
+      aggregation: "majority",
+      description: "Free-form deal terms.",
+    },
   },
-} as const;
+});
+
+/** Build the per-dispute cast_vote tool. The `remedy` field's shape reflects
+ *  the scenario's declared schema so the juror can ONLY emit fields the
+ *  bundle's auditor will know how to interpret. */
+function buildVoteTool(schema: StateSchemaResult): {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+} {
+  // The remedy sub-schema mirrors the negotiation state. We strip `amendments`
+  // — the jury never invents amendments, only ratifies what was bilaterally
+  // accepted, which is recorded in the converged Propose's amendments[] field.
+  const stateProperties =
+    (schema.jsonSchema as { properties?: Record<string, unknown> }).properties ?? {};
+  const stateRequired =
+    (schema.jsonSchema as { required?: string[] }).required ?? [];
+  const remedyProperties: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(stateProperties)) {
+    if (k === "amendments") continue;
+    remedyProperties[k] = v;
+  }
+  const remedyRequired = stateRequired.filter((k) => k !== "amendments");
+
+  const remedySchema = {
+    type: "object",
+    description:
+      `Remedy state — must match the scenario's state_schema (domain="${schema.domain}"). ` +
+      `Each field is independently aggregated across the 3 jurors using the per-field strategy ` +
+      `declared in the scenario (median / majority / intersect / first). ` +
+      schema.description,
+    properties: remedyProperties,
+    required: remedyRequired,
+    additionalProperties: false,
+  };
+
+  return {
+    name: "cast_vote",
+    description:
+      "Cast your vote on the dispute, citing specific evidence by hash. " +
+      "Your `remedy` must be a complete state object matching the scenario's schema.",
+    input_schema: {
+      type: "object",
+      properties: {
+        outcome: {
+          type: "string",
+          enum: [
+            "claimant_prevails",
+            "claimant_partial",
+            "respondent_prevails",
+            "abstain",
+          ],
+        },
+        remedy: remedySchema,
+        rationale: {
+          type: "string",
+          description: "Why this outcome — anchored in cited evidence.",
+        },
+        cited_evidence_hashes: {
+          type: "array",
+          items: { type: "string" },
+          description: "sha256:... hashes of evidence items you relied on.",
+        },
+        confidence: {
+          type: "number",
+          description: "Your confidence in [0,1].",
+        },
+      },
+      required: [
+        "outcome",
+        "remedy",
+        "rationale",
+        "cited_evidence_hashes",
+        "confidence",
+      ],
+    },
+  };
+}
 
 function buildJurorPrompt(args: {
   history: SignedMessage[];
   evidence: EvidencePool;
   scenario?: Scenario | null;
   claim?: string | null;
+  schema: StateSchemaResult;
 }): string {
   const evidenceLines = args.evidence.signed.map((e) => {
     return [
@@ -155,6 +210,13 @@ function buildJurorPrompt(args: {
     `## Remedy units in this dispute`,
     stateUnits,
     ``,
+    `## State schema (your remedy MUST conform to this — no extra keys, no missing required keys)`,
+    `domain: ${args.schema.domain}`,
+    `description: ${args.schema.description}`,
+    `JSON Schema: ${JSON.stringify(args.schema.jsonSchema, null, 2)}`,
+    `Per-field aggregation across the 3 jurors: ${JSON.stringify(args.schema.aggregations)}`,
+    `(median = numeric mid; majority = mode over jurors' picks; intersect = only items ALL jurors include survive; first = highest-confidence juror's value wins.)`,
+    ``,
     `## Case record — evidence pool`,
     evidenceLines.join("\n\n"),
     ``,
@@ -164,6 +226,7 @@ function buildJurorPrompt(args: {
     `## Instruction`,
     `Cast your vote via the cast_vote tool. Cite at least 2 evidence hashes from the pool above.`,
     `Pick a remedy that respects evidence tiers (S > A > B > C) and the party labels above.`,
+    `Your remedy MUST be a complete object matching the schema above (omit only "amendments" — the jury doesn't propose new amendments).`,
   ].join("\n");
 }
 
@@ -174,19 +237,26 @@ async function castVote(args: {
   juror_did: string;
   scenario?: Scenario | null;
   claim?: string | null;
-}): Promise<{ vote: Vote; raw: Record<string, unknown> }> {
+  schema: StateSchemaResult;
+}): Promise<{
+  vote: Vote;
+  remedy: Record<string, unknown>;
+  raw: Record<string, unknown>;
+}> {
   const client = getClient();
   const prompt = buildJurorPrompt({
     history: args.history,
     evidence: args.evidence,
     scenario: args.scenario,
     claim: args.claim,
+    schema: args.schema,
   });
+  const tool = buildVoteTool(args.schema);
   const resp = await client.messages.create({
     model: args.persona.model,
     max_tokens: 1500,
     system: args.persona.systemPrompt,
-    tools: [VOTE_TOOL] as unknown as Anthropic.Tool[],
+    tools: [tool] as unknown as Anthropic.Tool[],
     tool_choice: { type: "tool", name: "cast_vote", disable_parallel_tool_use: true },
     messages: [{ role: "user", content: prompt }],
   });
@@ -212,6 +282,19 @@ async function castVote(args: {
       const confidence = Number.isFinite(rawConfidence)
         ? Math.max(0, Math.min(1, rawConfidence))
         : 0;
+      // Back-compat: if the model returned the legacy {remedy_credit_usd,
+      // remedy_terms} shape (older mocks / fine-tunes), lift it into a
+      // remedy object so the aggregator gets uniform input.
+      let remedy = (input.remedy as Record<string, unknown> | undefined) ?? {};
+      if (
+        Object.keys(remedy).length === 0 &&
+        ("remedy_credit_usd" in input || "remedy_terms" in input)
+      ) {
+        remedy = {
+          credit_usd: Number(input.remedy_credit_usd ?? 0),
+          terms: String(input.remedy_terms ?? ""),
+        };
+      }
       const vote: Vote = {
         type: "Vote",
         juror: args.persona.name,
@@ -223,7 +306,7 @@ async function castVote(args: {
         confidence,
         timestamp: new Date().toISOString(),
       };
-      return { vote, raw: input };
+      return { vote, remedy, raw: input };
     }
   }
   throw new Error(`Juror ${args.persona.name} returned no cast_vote tool block`);
@@ -237,7 +320,7 @@ function abstainStub(args: {
   persona: JurorPersona;
   juror_did: string;
   reason: string;
-}): { vote: Vote; raw: Record<string, unknown> } {
+}): { vote: Vote; remedy: Record<string, unknown>; raw: Record<string, unknown> } {
   const vote: Vote = {
     type: "Vote",
     juror: args.persona.name,
@@ -249,10 +332,8 @@ function abstainStub(args: {
     confidence: 0,
     timestamp: new Date().toISOString(),
   };
-  return {
-    vote,
-    raw: { remedy_credit_usd: 0, remedy_terms: "juror unavailable" },
-  };
+  // Empty remedy — aggregator will fall back to other jurors' values per field.
+  return { vote, remedy: {}, raw: { reason: args.reason } };
 }
 
 function pickMajorityOutcome(
@@ -271,17 +352,6 @@ function pickMajorityOutcome(
   return { outcome: best, confidence: outcomes.length === 0 ? 0 : bestCount / outcomes.length };
 }
 
-function pickMedianRemedy(votes: Array<{ remedy_credit_usd: number; remedy_terms: string }>): DealState {
-  const sorted = [...votes].sort((a, b) => a.remedy_credit_usd - b.remedy_credit_usd);
-  const mid = Math.floor(sorted.length / 2);
-  const credit = sorted.length % 2 === 0
-    ? Math.round(((sorted[mid - 1]?.remedy_credit_usd ?? 0) + (sorted[mid]?.remedy_credit_usd ?? 0)) / 2)
-    : sorted[mid]?.remedy_credit_usd ?? 0;
-  // For terms, pick the one belonging to the median credit
-  const termsSource = sorted[mid] ?? sorted[0];
-  return { credit_usd: credit, terms: termsSource?.remedy_terms ?? "credit + commitments" };
-}
-
 export type DeliberateResult = {
   votes: SignedVote[];
   ruling: SignedRuling;
@@ -292,13 +362,16 @@ export async function deliberate(args: {
   evidence: EvidencePool;
   history: SignedMessage[];
   /** Optional scenario template — when present, jurors get the real party
-   *  display names and case_summary instead of a hardcoded SaaS-billing label. */
+   *  display names, case_summary, and the scenario's state_schema for the
+   *  cast_vote tool's input_schema. When absent, the legacy USD-credit
+   *  schema is used as fallback. */
   scenario?: Scenario | null;
   /** Optional free-form claim — used as case_summary fallback for schema-less
    *  disputes opened with `claim` (no scenario template). */
   claim?: string | null;
 }): Promise<DeliberateResult> {
   const tribunal = args.agents.tribunal;
+  const schema = args.scenario?.state_schema ?? DEFAULT_LEGACY_SCHEMA;
 
   // Promise.allSettled: a single juror failure (timeout, 5xx, malformed JSON)
   // can no longer kill the whole deliberation. Failed jurors emit a stub
@@ -313,18 +386,21 @@ export async function deliberate(args: {
         juror_did: tribunal.did,
         scenario: args.scenario,
         claim: args.claim,
+        schema,
       }),
     ),
   );
-  const results: Array<{ vote: Vote; raw: Record<string, unknown> }> = settled.map(
-    (s, i) => {
-      const persona = PERSONAS[i]!;
-      if (s.status === "fulfilled") return s.value;
-      const reason =
-        s.reason instanceof Error ? s.reason.message : String(s.reason);
-      return abstainStub({ persona, juror_did: tribunal.did, reason });
-    },
-  );
+  const results: Array<{
+    vote: Vote;
+    remedy: Record<string, unknown>;
+    raw: Record<string, unknown>;
+  }> = settled.map((s, i) => {
+    const persona = PERSONAS[i]!;
+    if (s.status === "fulfilled") return s.value;
+    const reason =
+      s.reason instanceof Error ? s.reason.message : String(s.reason);
+    return abstainStub({ persona, juror_did: tribunal.did, reason });
+  });
 
   // Validate cited_evidence_hashes; if any vote cites non-existent evidence,
   // strip those refs but keep the vote (still useful signal).
@@ -341,12 +417,19 @@ export async function deliberate(args: {
   const { outcome: majorityOutcome, confidence: agreementShare } = pickMajorityOutcome(
     results.map((r) => r.vote.outcome),
   );
-  const remedy = pickMedianRemedy(
+
+  // Schema-driven aggregation: each field of the remedy is combined according
+  // to the scenario's declared aggregation strategy. For oncology, this means
+  // coverage_envelope_usd is median'd, regimen is voted by majority, stop_rules
+  // are intersected — only stop rules ALL jurors agree on survive.
+  const remedyObj = aggregateRemedy(
     results.map((r) => ({
-      remedy_credit_usd: Number(r.raw.remedy_credit_usd ?? 0),
-      remedy_terms: String(r.raw.remedy_terms ?? ""),
+      remedy: r.remedy,
+      confidence: r.vote.confidence,
     })),
+    schema,
   );
+  const remedy = remedyObj as DealState;
 
   // Compound confidence = fraction of jurors agreeing × mean of their individual confidences.
   const meanIndividualConfidence =

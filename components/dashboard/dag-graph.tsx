@@ -24,6 +24,7 @@ const TYPE_INFO: Record<
   Reveal: { label: "Reveal", color: "#2FBF71", icon: "◉" },
   Accept: { label: "Accept", color: "#E7C59A", icon: "✓" },
   Escalate: { label: "Escalate", color: "#FF7A59", icon: "↗" },
+  Withdraw: { label: "Withdraw", color: "#E25B5B", icon: "✕" },
 };
 
 const VOTE_COLOR_BY_OUTCOME: Record<RulingOutcome, string> = {
@@ -233,7 +234,15 @@ export function DagGraph({ dispute }: Props) {
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-bone">
           {(
-            ["Propose", "CounterPropose", "Reveal", "Accept", "Critique", "Escalate"] as const
+            [
+              "Propose",
+              "CounterPropose",
+              "Reveal",
+              "Accept",
+              "Critique",
+              "Escalate",
+              "Withdraw",
+            ] as const
           ).map((t) => (
             <Legend key={t} label={TYPE_INFO[t].label} color={TYPE_INFO[t].color} />
           ))}

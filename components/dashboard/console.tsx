@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DisputeDump } from "./types";
+import type { DisputeDump, TribunalMode } from "./types";
 import { Sidebar } from "./sidebar";
 import { HeaderBar } from "./header-bar";
 import { PartiesRow } from "./parties-row";
@@ -61,7 +61,8 @@ export function Console() {
     };
   }, [selectedId]);
 
-  const seed = useCallback(async (scenario_id: string) => {
+  const seed = useCallback(
+    async (scenario_id: string, tribunal_mode: TribunalMode) => {
     setSeeding(true);
     setError(null);
     try {
@@ -73,7 +74,7 @@ export function Console() {
       const r = await fetch("/api/disputes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenario_id }),
+        body: JSON.stringify({ scenario_id, tribunal_mode }),
         signal: ac.signal,
       });
 
@@ -137,7 +138,33 @@ export function Console() {
       setError(err instanceof Error ? err.message : String(err));
       setSeeding(false);
     }
-  }, []);
+  },
+    [],
+  );
+
+  const withdraw = useCallback(
+    async (dispute_id: string, role: "aria" | "atlas", reason: string) => {
+      setError(null);
+      try {
+        const r = await fetch(
+          `/api/disputes/${encodeURIComponent(dispute_id)}/withdraw`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role, reason }),
+          },
+        );
+        if (!r.ok) {
+          const j = (await r.json().catch(() => ({}))) as { error?: string };
+          throw new Error(j.error ?? `HTTP ${r.status}`);
+        }
+        setRefreshSignal((s) => s + 1);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [],
+  );
 
   return (
     <div className="flex min-h-screen flex-col bg-deep-space text-polar-white lg:flex-row">
@@ -161,6 +188,7 @@ export function Console() {
           {dispute && (
             <div className="flex flex-col gap-5">
               {dispute.claim && <ClaimBanner claim={dispute.claim} />}
+              <ModeBanner dispute={dispute} onWithdraw={withdraw} />
               <PartiesRow dispute={dispute} />
               <DagGraph dispute={dispute} />
               <UtilityChart dispute={dispute} />
@@ -188,6 +216,81 @@ function ClaimBanner({ claim }: { claim: string }) {
       </span>
       {claim}
     </div>
+  );
+}
+
+function ModeBanner({
+  dispute,
+  onWithdraw,
+}: {
+  dispute: DisputeDump;
+  onWithdraw: (
+    dispute_id: string,
+    role: "aria" | "atlas",
+    reason: string,
+  ) => Promise<void>;
+}) {
+  const mode = dispute.tribunal_mode;
+  const finalized = !!dispute.finalized;
+  const tone =
+    mode === "binding"
+      ? "border-amber-glow/30 bg-amber-glow/5 text-amber-glow"
+      : "border-warn-red/40 bg-warn-red/5 text-warn-red";
+  const summary =
+    mode === "binding"
+      ? "Binding tribunal — if these two don't converge, the 3-LLM Tribunal arbitrates."
+      : "No tribunal — parties opted out at open. If they don't converge, bundle ends as deadline.";
+  return (
+    <section
+      className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 ${tone}`}
+    >
+      <span className="text-micro font-mono uppercase tracking-[0.2em]">
+        tribunal_mode · {mode}
+      </span>
+      <span className="t-body text-bone">{summary}</span>
+      {!finalized && (
+        <div className="ml-auto flex items-center gap-2">
+          <WithdrawButton
+            label="Aria withdraws"
+            onClick={() =>
+              onWithdraw(
+                dispute.dispute_id,
+                "aria",
+                "Aria walked from the dashboard.",
+              )
+            }
+          />
+          <WithdrawButton
+            label="Atlas withdraws"
+            onClick={() =>
+              onWithdraw(
+                dispute.dispute_id,
+                "atlas",
+                "Atlas walked from the dashboard.",
+              )
+            }
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WithdrawButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md border border-warn-red/40 bg-warn-red/10 px-3 py-1 text-micro font-medium uppercase tracking-[0.14em] text-warn-red transition-colors hover:bg-warn-red/20"
+    >
+      {label}
+    </button>
   );
 }
 

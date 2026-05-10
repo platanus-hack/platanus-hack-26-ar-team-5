@@ -9,6 +9,7 @@ import type {
   DumpMessage,
   DumpProposeMsg,
   DumpRevealMsg,
+  DumpWithdrawMsg,
 } from "./types";
 import { readStateTiers, shortHash, timeOfDay } from "./format";
 
@@ -24,6 +25,7 @@ const TYPE_LABEL: Record<DumpMessage["type"], string> = {
   Reveal: "Reveal",
   Accept: "Accept",
   Escalate: "Escalate",
+  Withdraw: "Withdraw",
 };
 
 export function Timeline({ dispute }: Props) {
@@ -167,6 +169,8 @@ function Body({ m }: { m: DumpMessage }) {
     text = (m as DumpAcceptMsg).payload.rationale ?? null;
   } else if (m.type === "Escalate") {
     text = (m as DumpEscalateMsg).payload.rationale;
+  } else if (m.type === "Withdraw") {
+    text = (m as DumpWithdrawMsg).payload.reason;
   }
   if (!text) {
     return <p className="t-body text-dim">No rationale recorded for this move.</p>;

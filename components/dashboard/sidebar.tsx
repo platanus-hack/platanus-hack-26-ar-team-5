@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { DisputeListResponse, DisputeSummary, ScenarioMeta } from "./types";
+import type {
+  DisputeListResponse,
+  DisputeSummary,
+  ScenarioMeta,
+  TribunalMode,
+} from "./types";
 import { relativeTime } from "./format";
 
 type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onSeed: (scenario_id: string) => Promise<void>;
+  onSeed: (scenario_id: string, tribunal_mode: TribunalMode) => Promise<void>;
   seeding: boolean;
   refreshSignal: number;
 };
@@ -22,6 +27,7 @@ export function Sidebar({
   const [data, setData] = useState<DisputeListResponse | null>(null);
   const [now, setNow] = useState(Date.now());
   const [scenarioId, setScenarioId] = useState<string>("ai-overrun");
+  const [tribunalMode, setTribunalMode] = useState<TribunalMode>("binding");
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +64,9 @@ export function Sidebar({
         scenarios={scenarios}
         scenarioId={scenarioId}
         onScenarioChange={setScenarioId}
-        onSeed={() => onSeed(scenarioId)}
+        tribunalMode={tribunalMode}
+        onTribunalModeChange={setTribunalMode}
+        onSeed={() => onSeed(scenarioId, tribunalMode)}
         seeding={seeding}
       />
       <DisputeList
@@ -101,12 +109,16 @@ function SeedRow({
   scenarios,
   scenarioId,
   onScenarioChange,
+  tribunalMode,
+  onTribunalModeChange,
   onSeed,
   seeding,
 }: {
   scenarios: ScenarioMeta[];
   scenarioId: string;
   onScenarioChange: (id: string) => void;
+  tribunalMode: TribunalMode;
+  onTribunalModeChange: (mode: TribunalMode) => void;
   onSeed: () => void;
   seeding: boolean;
 }) {
@@ -137,10 +149,58 @@ function SeedRow({
           {seeding ? "Seeding…" : "Run"}
         </button>
       </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <ModeChip
+          mode="binding"
+          active={tribunalMode === "binding"}
+          disabled={seeding}
+          onPick={() => onTribunalModeChange("binding")}
+        />
+        <ModeChip
+          mode="none"
+          active={tribunalMode === "none"}
+          disabled={seeding}
+          onPick={() => onTribunalModeChange("none")}
+        />
+      </div>
       <div className="mt-2 text-micro text-dim">
-        Both sides driven by Claude. Watch the negotiation build live, move by move.
+        {tribunalMode === "binding"
+          ? "If they don't converge, the 3-LLM Tribunal arbitrates. Default."
+          : "No tribunal. If they don't converge, bundle ends as deadline."}
       </div>
     </div>
+  );
+}
+
+function ModeChip({
+  mode,
+  active,
+  disabled,
+  onPick,
+}: {
+  mode: TribunalMode;
+  active: boolean;
+  disabled: boolean;
+  onPick: () => void;
+}) {
+  const label = mode === "binding" ? "Binding tribunal" : "No tribunal";
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      disabled={disabled}
+      className={[
+        "rounded-md border px-2 py-1.5 text-caption transition-colors",
+        active
+          ? mode === "binding"
+            ? "border-amber-glow/50 bg-amber-glow/10 text-amber-glow"
+            : "border-warn-red/45 bg-warn-red/10 text-warn-red"
+          : "border-line bg-graphite/40 text-ash-gray hover:border-steel hover:text-polar-white",
+        disabled ? "cursor-not-allowed opacity-50" : "",
+      ].join(" ")}
+    >
+      <span className="block text-micro uppercase tracking-[0.14em]">{label}</span>
+    </button>
   );
 }
 
@@ -225,17 +285,26 @@ function DisputeRow({
         <span>{d.history_count} msg</span>
         <span aria-hidden>·</span>
         <span>{d.evidence_count} evd</span>
+        <span aria-hidden>·</span>
+        <ModeMicroBadge mode={d.tribunal_mode} />
       </div>
     </button>
   );
 }
 
-type Status = "live" | "converged" | "ruled" | "deadline" | "idle";
+type Status =
+  | "live"
+  | "converged"
+  | "ruled"
+  | "deadline"
+  | "withdrawn"
+  | "idle";
 
 function statusOf(d: DisputeSummary): Status {
   if (!d.finalized) return d.history_count > 0 ? "live" : "idle";
   if (d.outcome_kind === "converged") return "converged";
   if (d.outcome_kind === "ruling") return "ruled";
+  if (d.outcome_kind === "withdrawn") return "withdrawn";
   return "deadline";
 }
 
@@ -266,6 +335,11 @@ function StatusBadge({ status }: { status: Status }) {
       cls: "border-warn-red/40 bg-warn-red/10 text-warn-red",
       dot: "bg-warn-red",
     },
+    withdrawn: {
+      label: "withdrawn",
+      cls: "border-warn-red/40 bg-warn-red/10 text-warn-red",
+      dot: "bg-warn-red",
+    },
   };
   const c = cfg[status];
   return (
@@ -276,6 +350,21 @@ function StatusBadge({ status }: { status: Status }) {
         className={`h-1.5 w-1.5 rounded-full ${c.dot} ${status === "live" ? "pacta-pulse" : ""}`}
       />
       {c.label}
+    </span>
+  );
+}
+
+function ModeMicroBadge({ mode }: { mode: TribunalMode }) {
+  if (mode === "binding") {
+    return (
+      <span className="inline-flex items-center gap-1 font-mono uppercase tracking-[0.1em] text-amber-glow">
+        binding
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 font-mono uppercase tracking-[0.1em] text-warn-red">
+      no-trib
     </span>
   );
 }

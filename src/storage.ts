@@ -30,6 +30,7 @@ import type {
   SignedMessage,
   SignedRuling,
   SignedVote,
+  TribunalMode,
 } from "./types";
 
 ed.hashes.sha512 = sha512;
@@ -55,6 +56,10 @@ export type StoredDispute = {
   turn: AgentRole;
   current_round: number;
   max_rounds: number;
+  /** Pre-committed dispute-resolution mode (immutable after open). Older
+   *  records that pre-date this field default to `binding` on load so the
+   *  legacy behavior is preserved. */
+  tribunal_mode: TribunalMode;
   pending_feedback: string[];
   finalized: { bundle: Bundle } | null;
   ruling: { votes: SignedVote[]; ruling: SignedRuling } | null;
@@ -228,7 +233,10 @@ export async function loadDispute(dispute_id: string): Promise<LiveDispute | nul
   const scenario = stored.scenario_id ? getScenario(stored.scenario_id) : null;
   const agents = rehydrateAgents(stored.agent_keys);
   const evidence = indexEvidence(stored.signed_evidence ?? []);
-  return { ...stored, scenario, agents, evidence };
+  // Backfill tribunal_mode for records that pre-date the field — they were
+  // all opened under the old binding-only semantics.
+  const tribunal_mode: TribunalMode = stored.tribunal_mode ?? "binding";
+  return { ...stored, tribunal_mode, scenario, agents, evidence };
 }
 
 /** Return a list of dispute ids currently held in storage. */
@@ -268,6 +276,7 @@ export async function saveDispute(live: LiveDispute): Promise<void> {
     turn: live.turn,
     current_round: live.current_round,
     max_rounds: live.max_rounds,
+    tribunal_mode: live.tribunal_mode,
     pending_feedback: live.pending_feedback,
     finalized: live.finalized,
     ruling: live.ruling,

@@ -44,6 +44,15 @@ export function OutcomeBanner({ dispute }: Props) {
       />
     );
   }
+  if (outcome.kind === "withdrawn") {
+    return (
+      <WithdrawnBanner
+        dispute={dispute}
+        withdrawnRole={outcome.withdrawn_role}
+        reason={outcome.reason}
+      />
+    );
+  }
   return <DeadlineBanner dispute={dispute} />;
 }
 
@@ -260,9 +269,10 @@ function JurorCard({ v }: { v: DumpSignedVote }) {
 }
 
 function DeadlineBanner({ dispute }: { dispute: DisputeDump }) {
+  const noTribunal = dispute.tribunal_mode === "none";
   return (
     <section className="overflow-hidden rounded-lg border border-warn-red/40 bg-graphite/40">
-      <div className="flex items-end justify-between gap-6 border-b border-warn-red/20 bg-warn-red/5 px-6 py-5">
+      <div className="flex flex-wrap items-end justify-between gap-6 border-b border-warn-red/20 bg-warn-red/5 px-6 py-5">
         <div>
           <div className="t-body uppercase tracking-[0.22em] text-warn-red">
             Outcome
@@ -273,6 +283,61 @@ function DeadlineBanner({ dispute }: { dispute: DisputeDump }) {
         </div>
         <p className="t-body text-ash-gray">
           Round {dispute.current_round} of {dispute.max_rounds}.
+        </p>
+      </div>
+      {noTribunal && (
+        <div className="px-6 py-4 t-body leading-[20px] text-bone">
+          Both parties opted out of the Tribunal at open
+          (<code className="font-mono text-warn-red">tribunal_mode=none</code>).
+          The signed bundle records the deadlock with no remedy and no winner —
+          downstream consumers can see exactly how far the negotiation got.
+        </div>
+      )}
+      <BundleFooter dispute={dispute} />
+    </section>
+  );
+}
+
+function WithdrawnBanner({
+  dispute,
+  withdrawnRole,
+  reason,
+}: {
+  dispute: DisputeDump;
+  withdrawnRole: "aria" | "atlas";
+  reason: string;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-warn-red/40 bg-graphite/40">
+      <div className="flex flex-wrap items-end justify-between gap-6 border-b border-warn-red/20 bg-warn-red/5 px-6 py-5">
+        <div>
+          <div className="t-body uppercase tracking-[0.22em] text-warn-red">
+            Outcome
+          </div>
+          <h3 className="mt-1 text-[28px] font-light leading-tight tracking-[-0.01em] text-polar-white">
+            <span
+              className={
+                withdrawnRole === "aria" ? "text-aria" : "text-atlas"
+              }
+            >
+              {withdrawnRole}
+            </span>{" "}
+            withdrew.
+          </h3>
+        </div>
+        <p className="t-body text-ash-gray">
+          At round {dispute.current_round} of {dispute.max_rounds}.
+        </p>
+      </div>
+      <div className="px-6 py-4">
+        <div className="t-body uppercase tracking-[0.18em] text-ash-gray">
+          Reason
+        </div>
+        <p className="mt-2 t-label leading-[22px] text-bone">{reason}</p>
+        <p className="mt-3 t-body text-dim">
+          Withdraw is unilateral — works under any tribunal_mode. The audit
+          trail records who walked, why, and at what round. No remedy, no
+          winner, but a permanent on-record exit.
         </p>
       </div>
       <BundleFooter dispute={dispute} />

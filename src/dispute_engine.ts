@@ -29,6 +29,7 @@ import type {
   ProposeMsg,
   RevealMsg,
   SignedMessage,
+  WithdrawMsg,
 } from "./types";
 
 export type StepEvent =
@@ -39,6 +40,8 @@ export type StepEvent =
   | { kind: "deadlock"; reason: string }
   | { kind: "escalation"; reason: string }
   | { kind: "jury.ruled" }
+  | { kind: "deadline" }
+  | { kind: "withdrawn"; role: AgentRole; reason: string }
   | { kind: "bundle.built"; bundle: Bundle };
 
 const ORDER: AgentRole[] = ["aria", "atlas"];
@@ -211,6 +214,15 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
     if (!found)
       return `Accept must target a prior Propose or CounterPropose; '${target}' resolves to a non-proposal message.`;
   }
+  // Mode gate: tribunal_mode=none disables Escalate entirely. Parties opted
+  // out of the Tribunal failsafe at open, so they have to converge bilaterally
+  // or call Withdraw.
+  if (body.type === "Escalate" && state.tribunal_mode === "none") {
+    return (
+      `Escalate is not allowed in this dispute (tribunal_mode=none was set at open). ` +
+      `Either converge bilaterally with Accept, or call withdraw_dispute to exit without remedy.`
+    );
+  }
   return null;
 }
 
@@ -257,6 +269,7 @@ function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
       atlas: state.agents.atlas.did,
       tribunal: state.agents.tribunal.did,
     },
+    tribunal_mode: state.tribunal_mode,
     evidence: state.evidence.signed,
     messages: state.history,
     outcome,
@@ -291,6 +304,59 @@ async function escalateAndFinalize(
   return events;
 }
 
+/** Mode-aware terminator for "we ran out of rounds without converging".
+ *  Under `binding`, escalate to the Tribunal. Under `none`, finalize as a
+ *  no-remedy `deadline` outcome — the parties opted out of arbitration at
+ *  open, so the bundle just records the deadlock. */
+async function terminateOnDeadline(state: DisputeState): Promise<StepEvent[]> {
+  if (state.tribunal_mode === "none") {
+    const events: StepEvent[] = [{ kind: "deadline" }];
+    const bundle = buildBundle(state, { kind: "deadline" });
+    events.push({ kind: "bundle.built", bundle });
+    return events;
+  }
+  return escalateAndFinalize(state, "max_rounds_exhausted");
+}
+
+/** Build a signed Withdraw message and finalize the bundle as withdrawn.
+ *  Either party can call this at any time with their role_token. */
+function buildWithdrawAndFinalize(
+  state: DisputeState,
+  role: AgentRole,
+  reason: string,
+): { events: StepEvent[]; signed: SignedMessage } {
+  const agent = state.agents[role];
+  const body: WithdrawMsg = {
+    msg_id: cryptoRandomId(),
+    round: state.current_round,
+    from_agent: agent.did,
+    type: "Withdraw",
+    timestamp: new Date().toISOString(),
+    evidence_refs: [],
+    parent_refs: [],
+    payload: { reason },
+  };
+  const signed = signDoc(body, agent.keypair, agent.did);
+  if (!verifySignedDoc(signed))
+    throw new Error("internal: self-signed Withdraw verification failed");
+  state.history.push(signed);
+  state.pending_feedback = [];
+  const h = docHash(signed);
+  const events: StepEvent[] = [
+    { kind: "message.accepted", role, signed, hash: h },
+    { kind: "withdrawn", role, reason },
+  ];
+  const bundle = buildBundle(state, {
+    kind: "withdrawn",
+    withdrawn_by: agent.did,
+    withdrawn_role: role,
+    withdraw_msg_hash: h,
+    reason,
+  });
+  events.push({ kind: "bundle.built", bundle });
+  return { events, signed };
+}
+
 function applyAttempt(
   state: DisputeState,
   role: AgentRole,
@@ -317,6 +383,21 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
     state.controllers[state.turn] === "claude" &&
     state.current_round <= state.max_rounds
   ) {
+    // Defensive re-read: another writer (e.g. an out-of-band withdraw_dispute)
+    // may have finalized this dispute between iterations. We don't want to
+    // overwrite their finalized bundle with our stale in-memory state.
+    const fresh = await getDispute(state.dispute_id);
+    if (fresh.finalized) {
+      return events;
+    }
+    // Adopt the freshest history if it grew — a withdraw landed but didn't
+    // finalize (shouldn't happen, but defend).
+    if (fresh.history.length > state.history.length) {
+      state.history = fresh.history;
+      state.turn = fresh.turn;
+      state.current_round = fresh.current_round;
+      state.pending_feedback = fresh.pending_feedback;
+    }
     const role = state.turn;
     if (!state.scenario) {
       // Schema-less disputes have no system prompts — Pacta cannot drive
@@ -380,8 +461,8 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
     if (adv.advanced_round)
       events.push({ kind: "round.advanced", new_round: state.current_round });
     if (state.current_round > state.max_rounds) {
-      const escalation = await escalateAndFinalize(state, "max_rounds_exhausted");
-      events.push(...escalation);
+      const term = await terminateOnDeadline(state);
+      events.push(...term);
       await saveDispute(state);
       return events;
     }
@@ -455,8 +536,8 @@ export async function submitExternalMessage(args: {
   if (adv.advanced_round)
     events.push({ kind: "round.advanced", new_round: state.current_round });
   if (state.current_round > state.max_rounds) {
-    const escalation = await escalateAndFinalize(state, "max_rounds_exhausted");
-    events.push(...escalation);
+    const term = await terminateOnDeadline(state);
+    events.push(...term);
     await saveDispute(state);
     return { events, state: publicState(state) };
   }
@@ -483,10 +564,35 @@ export function publicState(state: DisputeState) {
     turn: state.turn,
     current_round: state.current_round,
     max_rounds: state.max_rounds,
+    tribunal_mode: state.tribunal_mode,
     finalized: !!state.finalized,
     bundle: state.finalized?.bundle ?? null,
     ruling: state.ruling ?? null,
     history_count: state.history.length,
     pending_feedback: state.pending_feedback,
   };
+}
+
+/** Unilateral exit. The party identified by role_token signs a Withdraw and
+ *  the bundle is finalized as `withdrawn`. Works under any tribunal_mode and
+ *  at any phase before the dispute is already finalized. */
+export async function withdrawFromDispute(args: {
+  dispute_id: string;
+  role_token: string;
+  reason?: string;
+}): Promise<SubmitResult> {
+  const state = await getDispute(args.dispute_id);
+  if (state.finalized) throw new Error("dispute is already finalized");
+  let role: AgentRole | null = null;
+  for (const r of ["aria", "atlas"] as AgentRole[]) {
+    if (state.role_tokens[r] === args.role_token) role = r;
+  }
+  if (!role)
+    throw new Error("role_token mismatch — token does not match either party");
+  const reason = args.reason && args.reason.trim().length > 0
+    ? args.reason
+    : "no reason given";
+  const { events } = buildWithdrawAndFinalize(state, role, reason);
+  await saveDispute(state);
+  return { events, state: publicState(state) };
 }

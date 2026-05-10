@@ -23,7 +23,7 @@ import {
   type AgentRole,
 } from "./storage";
 import { buildEvidencePool, type EvidencePool } from "./fixtures";
-import type { Evidence, EvidenceTier, SignedEvidence } from "./types";
+import type { Evidence, EvidenceTier, SignedEvidence, TribunalMode } from "./types";
 
 export type { AgentRole, LiveDispute as DisputeState } from "./storage";
 
@@ -43,6 +43,11 @@ export type OpenDisputeArgs = {
   your_role: AgentRole;
   counterparty_external?: boolean;
   max_rounds?: number;
+  /** Pre-commit dispute-resolution mode. `binding` (default) routes deadlocks
+   *  to a 3-LLM Tribunal whose ruling binds both parties. `none` opts out:
+   *  Escalate is rejected and max_rounds finalizes the bundle as deadline
+   *  (no remedy). Either party can always Withdraw. */
+  tribunal_mode?: TribunalMode;
 };
 
 export type OpenDisputeResult = {
@@ -56,6 +61,7 @@ export type OpenDisputeResult = {
   your_did: string;
   counterparty_did: string;
   counterparty_external: boolean;
+  tribunal_mode: TribunalMode;
   next_to_act: AgentRole;
   current_round: number;
 };
@@ -63,6 +69,12 @@ export type OpenDisputeResult = {
 export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeResult> {
   if (!args.scenario_id && !args.claim) {
     throw new Error("open_dispute requires either scenario_id or claim (or both)");
+  }
+  const tribunal_mode: TribunalMode = args.tribunal_mode ?? "binding";
+  if (tribunal_mode !== "binding" && tribunal_mode !== "none") {
+    throw new Error(
+      `tribunal_mode must be 'binding' or 'none' (got '${tribunal_mode}')`,
+    );
   }
   const scenario = args.scenario_id ? getScenario(args.scenario_id) : null;
   const { agents, agent_keys } = freshAgents();
@@ -106,6 +118,7 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
     turn: "aria",
     current_round: 1,
     max_rounds: args.max_rounds ?? 5,
+    tribunal_mode,
     pending_feedback: [],
     finalized: null,
     ruling: null,
@@ -134,6 +147,7 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
     your_did: agents[your_role].did,
     counterparty_did: agents[other_role].did,
     counterparty_external,
+    tribunal_mode,
     next_to_act: live.turn,
     current_round: live.current_round,
   };
@@ -149,6 +163,9 @@ export type JoinDisputeResult = {
   your_token: string;
   your_did: string;
   counterparty_did: string;
+  /** Mode the opener pre-committed to. The joiner sees this BEFORE deciding
+   *  whether to claim a role — under `none` there's no tribunal failsafe. */
+  tribunal_mode: TribunalMode;
   next_to_act: AgentRole;
   current_round: number;
 };
@@ -185,6 +202,7 @@ export async function joinDispute(args: {
     your_token: s.role_tokens[args.role],
     your_did: s.agents[args.role].did,
     counterparty_did: s.agents[other].did,
+    tribunal_mode: s.tribunal_mode,
     next_to_act: s.turn,
     current_round: s.current_round,
   };
@@ -273,6 +291,7 @@ export async function dumpDispute(dispute_id: string) {
     turn: s.turn,
     current_round: s.current_round,
     max_rounds: s.max_rounds,
+    tribunal_mode: s.tribunal_mode,
     history,
     pending_feedback: s.pending_feedback,
     evidence,
@@ -302,7 +321,19 @@ export { listDisputeIds };
 export async function openDemoDispute(args: {
   scenario_id: string;
   max_rounds?: number;
-}): Promise<{ dispute_id: string; scenario: Scenario; created_at: string }> {
+  tribunal_mode?: TribunalMode;
+}): Promise<{
+  dispute_id: string;
+  scenario: Scenario;
+  tribunal_mode: TribunalMode;
+  created_at: string;
+}> {
+  const tribunal_mode: TribunalMode = args.tribunal_mode ?? "binding";
+  if (tribunal_mode !== "binding" && tribunal_mode !== "none") {
+    throw new Error(
+      `tribunal_mode must be 'binding' or 'none' (got '${tribunal_mode}')`,
+    );
+  }
   const scenario = getScenario(args.scenario_id);
   const { agents, agent_keys } = freshAgents();
   const created_at = new Date().toISOString();
@@ -323,6 +354,7 @@ export async function openDemoDispute(args: {
     turn: "aria",
     current_round: 1,
     max_rounds: args.max_rounds ?? 5,
+    tribunal_mode,
     pending_feedback: [],
     finalized: null,
     ruling: null,
@@ -330,7 +362,7 @@ export async function openDemoDispute(args: {
     agent_keys,
   };
   await saveLive(live);
-  return { dispute_id, scenario, created_at };
+  return { dispute_id, scenario, tribunal_mode, created_at };
 }
 
 export type DisputeSummary = {
@@ -344,7 +376,8 @@ export type DisputeSummary = {
   history_count: number;
   evidence_count: number;
   finalized: boolean;
-  outcome_kind: "converged" | "ruling" | "deadline" | null;
+  outcome_kind: "converged" | "ruling" | "deadline" | "withdrawn" | null;
+  tribunal_mode: TribunalMode;
   controllers: Record<AgentRole, "external" | "claude">;
   agents: { aria: string; atlas: string };
 };
@@ -365,6 +398,7 @@ export async function listDisputeSummaries(): Promise<DisputeSummary[]> {
     evidence_count: s.evidence.signed.length,
     finalized: !!s.finalized,
     outcome_kind: s.finalized?.bundle.outcome.kind ?? null,
+    tribunal_mode: s.tribunal_mode,
     controllers: s.controllers,
     agents: { aria: s.agents.aria.did, atlas: s.agents.atlas.did },
   }));

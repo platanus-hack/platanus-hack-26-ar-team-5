@@ -38,7 +38,11 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { scenario_id?: string; max_rounds?: number } = {};
+  let body: {
+    scenario_id?: string;
+    max_rounds?: number;
+    tribunal_mode?: "binding" | "none";
+  } = {};
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -47,6 +51,7 @@ export async function POST(req: Request) {
 
   const scenario_id = body.scenario_id ?? "ai-overrun";
   const max_rounds = body.max_rounds ?? 5;
+  const tribunal_mode = body.tribunal_mode ?? "binding";
 
   const known = new Set(listScenarios().map((s) => s.id));
   if (!known.has(scenario_id)) {
@@ -55,10 +60,17 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  if (tribunal_mode !== "binding" && tribunal_mode !== "none") {
+    return Response.json(
+      { error: `tribunal_mode must be 'binding' or 'none' (got '${tribunal_mode}')` },
+      { status: 400 },
+    );
+  }
 
   const { dispute_id, scenario, created_at } = await openDemoDispute({
     scenario_id,
     max_rounds,
+    tribunal_mode,
   });
 
   const stream = new ReadableStream<Uint8Array>({

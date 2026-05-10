@@ -3,6 +3,9 @@ export type AgentRole = "aria" | "atlas";
 
 export type EvidenceTier = "S" | "A" | "B" | "C";
 
+/** Pre-committed dispute-resolution mode. Locked at open. */
+export type TribunalMode = "binding" | "none";
+
 export type DumpEvidence = {
   type: "Evidence";
   evidence_id: string;
@@ -63,12 +66,18 @@ export type DumpEscalateMsg = DumpMessageBase & {
   payload: { rationale: string };
 };
 
+export type DumpWithdrawMsg = DumpMessageBase & {
+  type: "Withdraw";
+  payload: { reason: string };
+};
+
 export type DumpMessage =
   | DumpProposeMsg
   | DumpCritiqueMsg
   | DumpAcceptMsg
   | DumpRevealMsg
-  | DumpEscalateMsg;
+  | DumpEscalateMsg
+  | DumpWithdrawMsg;
 
 export type RulingOutcome =
   | "claimant_prevails"
@@ -112,6 +121,7 @@ export type Bundle = {
   type: "Bundle";
   scenario: string;
   agents: { aria: string; atlas: string; tribunal: string };
+  tribunal_mode: TribunalMode;
   evidence: unknown[];
   messages: unknown[];
   outcome:
@@ -121,7 +131,14 @@ export type Bundle = {
         accepted_msg_hash: string;
       }
     | { kind: "ruling"; votes: DumpSignedVote[]; ruling: DumpSignedRuling }
-    | { kind: "deadline" };
+    | { kind: "deadline" }
+    | {
+        kind: "withdrawn";
+        withdrawn_by: string;
+        withdrawn_role: AgentRole;
+        withdraw_msg_hash: string;
+        reason: string;
+      };
   created_at: string;
   root_hash: string;
   root_hash_jcs?: string;
@@ -136,6 +153,7 @@ export type DisputeDump = {
   turn: AgentRole;
   current_round: number;
   max_rounds: number;
+  tribunal_mode: TribunalMode;
   history: DumpMessage[];
   pending_feedback: string[];
   evidence: DumpEvidence[];
@@ -155,7 +173,8 @@ export type DisputeSummary = {
   history_count: number;
   evidence_count: number;
   finalized: boolean;
-  outcome_kind: "converged" | "ruling" | "deadline" | null;
+  outcome_kind: "converged" | "ruling" | "deadline" | "withdrawn" | null;
+  tribunal_mode: TribunalMode;
   controllers: Record<AgentRole, "external" | "claude">;
   agents: { aria: string; atlas: string };
 };

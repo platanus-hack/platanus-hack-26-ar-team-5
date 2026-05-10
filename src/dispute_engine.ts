@@ -15,6 +15,7 @@ import {
 } from "./dispute_store";
 import { StaleVersionError } from "./storage";
 import type { MessageBody } from "./orchestrator";
+import { validateStateAgainstSchema } from "./orchestrator";
 import {
   resolveMsgRef,
   resolveEvidenceRef,
@@ -23,7 +24,9 @@ import {
 } from "./refs";
 import type {
   AcceptMsg,
+  AmendMsg,
   Bundle,
+  BundleStateSchema,
   CounterProposeMsg,
   DealState,
   Message,
@@ -44,6 +47,7 @@ export type StepEvent =
   | { kind: "jury.ruled" }
   | { kind: "deadline" }
   | { kind: "withdrawn"; role: AgentRole; reason: string }
+  | { kind: "amendment.applied"; role: AgentRole; key: string; amend_msg_hash: string }
   | { kind: "bundle.built"; bundle: Bundle };
 
 const ORDER: AgentRole[] = ["aria", "atlas"];
@@ -184,6 +188,7 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
   // Critique, and Accept must anchor to a prior message — otherwise an agent
   // can submit a placeholder that gets accepted as a real binding move.
   // Propose may have empty parent_refs only at round 1 (the opening move).
+  // Reveal and Amend introduce something new and don't require parents.
   if (body.parent_refs.length === 0) {
     if (body.type === "Critique" || body.type === "Accept" || body.type === "CounterPropose") {
       return (
@@ -203,47 +208,75 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
     const last = lastProposalUtility(state.history, agent.did);
     if (last !== undefined && body.payload.utility_for_self - last > 1e-9)
       return `compromise bound violated: utility_for_self=${body.payload.utility_for_self} but your previous utility was ${last}; the new value MUST be ≤ that.`;
+    // Schema validation against the scenario's declared state_schema. Only
+    // enforced when the dispute has a scenario (schema-less BYO disputes
+    // skip this — they don't have a declared shape).
+    const schema = state.scenario?.state_schema;
+    if (schema) {
+      const err = validateStateAgainstSchema(body.payload.state, schema);
+      if (err) return err;
+    }
   }
   if (body.type === "Reveal") {
     if (hasRevealForDomain(state.history, agent.did, body.payload.domain))
       return `reveal monotonicity violated: domain '${body.payload.domain}' already revealed.`;
   }
-  if (body.type === "Accept") {
-    const target = body.payload.target_msg_hash;
-    const found = state.history.some(
-      (m) => (m.type === "Propose" || m.type === "CounterPropose") && docHash(m) === target,
-    );
-    if (!found)
-      return `Accept must target a prior Propose or CounterPropose; '${target}' resolves to a non-proposal message.`;
-
-    // Sequential-Accept rule: real negotiations are linear. Once the
-    // counterparty has Accepted a target, your only valid Accept is on the
-    // SAME target (which converges) — Accepting a different target would
-    // create competing endorsements in the audit graph and leave the deal
-    // ambiguous from a third-party reviewer's perspective. If you don't want
-    // to converge on what they Accepted, submit a CounterPropose / Critique /
-    // Escalate to keep the negotiation open.
-    const counterpartyDid = state.agents[role === "aria" ? "atlas" : "aria"].did;
-    let lastCounterMove: SignedMessage | undefined;
-    for (let i = state.history.length - 1; i >= 0; i--) {
-      const m = state.history[i]!;
-      if (m.from_agent === counterpartyDid) {
-        lastCounterMove = m;
-        break;
+  if (body.type === "Amend") {
+    const key = (body as AmendMsg).payload?.key;
+    if (typeof key !== "string" || key.length === 0) {
+      return `Amend requires payload.key (non-empty string).`;
+    }
+    const schema = state.scenario?.state_schema;
+    if (schema) {
+      const declared = Object.keys(
+        (schema.jsonSchema as { properties?: Record<string, unknown> }).properties ?? {},
+      );
+      if (declared.includes(key) && key !== "amendments") {
+        return (
+          `Amend.key '${key}' collides with a declared schema field. ` +
+          `Declared fields go through Propose/CounterPropose, not Amend.`
+        );
       }
     }
-    if (lastCounterMove && lastCounterMove.type === "Accept") {
-      const cpTarget = (lastCounterMove as AcceptMsg).payload.target_msg_hash;
-      if (cpTarget !== target) {
-        const cpIdx = state.history.indexOf(lastCounterMove);
-        const cpRef = `m${cpIdx + 1}`;
-        return (
-          `cross-accept rejected. Counterparty's most recent move (${cpRef}) was Accept(${cpTarget.slice(0, 26)}…). ` +
-          `Your Accept must target the SAME hash to converge — Accepting a different proposal creates competing endorsements that never converge ` +
-          `and leaves the audit graph ambiguous. ` +
-          `Either Accept ${cpTarget.slice(0, 26)}… (which converges the dispute), or submit a CounterPropose / Critique / Escalate to keep negotiating. ` +
-          `If your Accept was an attempt to lock in DIFFERENT terms, restate them as a fresh CounterPropose so both sides can subsequently Accept the same anchor.`
-        );
+  }
+  if (body.type === "Accept") {
+    const target = body.payload.target_msg_hash;
+    const targetMsg = state.history.find((m) => docHash(m) === target);
+    const isDealAccept =
+      targetMsg?.type === "Propose" || targetMsg?.type === "CounterPropose";
+    const isAmendAccept = targetMsg?.type === "Amend";
+    if (!isDealAccept && !isAmendAccept) {
+      return `Accept must target a prior Propose, CounterPropose, or Amend; '${target}' resolves to a non-acceptable message.`;
+    }
+
+    // Cross-accept rule: only fires for deal-Accepts (not Amend-Accepts).
+    if (isDealAccept) {
+      const counterpartyDid = state.agents[role === "aria" ? "atlas" : "aria"].did;
+      let lastCounterMove: SignedMessage | undefined;
+      for (let i = state.history.length - 1; i >= 0; i--) {
+        const m = state.history[i]!;
+        if (m.from_agent === counterpartyDid) {
+          lastCounterMove = m;
+          break;
+        }
+      }
+      if (lastCounterMove && lastCounterMove.type === "Accept") {
+        const cpTarget = (lastCounterMove as AcceptMsg).payload.target_msg_hash;
+        const cpTargetMsg = state.history.find((m) => docHash(m) === cpTarget);
+        const cpWasDealAccept =
+          cpTargetMsg?.type === "Propose" ||
+          cpTargetMsg?.type === "CounterPropose";
+        if (cpWasDealAccept && cpTarget !== target) {
+          const cpIdx = state.history.indexOf(lastCounterMove);
+          const cpRef = `m${cpIdx + 1}`;
+          return (
+            `cross-accept rejected. Counterparty's most recent move (${cpRef}) was Accept(${cpTarget.slice(0, 26)}…). ` +
+            `Your Accept must target the SAME hash to converge — Accepting a different proposal creates competing endorsements that never converge ` +
+            `and leaves the audit graph ambiguous. ` +
+            `Either Accept ${cpTarget.slice(0, 26)}… (which converges the dispute), or submit a CounterPropose / Critique / Escalate to keep negotiating. ` +
+            `If your Accept was an attempt to lock in DIFFERENT terms, restate them as a fresh CounterPropose so both sides can subsequently Accept the same anchor.`
+          );
+        }
       }
     }
   }
@@ -293,9 +326,24 @@ function advanceTurn(state: DisputeState): { advanced_round: boolean } {
   return { advanced_round: true };
 }
 
+/** Build the embedded state_schema block for the bundle. Returns undefined for
+ *  schema-less disputes (older bundles, or BYO without a scenario template). */
+function bundleStateSchema(state: DisputeState): BundleStateSchema | undefined {
+  const s = state.scenario?.state_schema;
+  if (!s) return undefined;
+  return {
+    ref: s.ref,
+    domain: s.domain,
+    description: s.description,
+    json_schema: s.jsonSchema,
+  };
+}
+
 function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
+  const schema = bundleStateSchema(state);
   const bundleNoHash: Omit<Bundle, "root_hash" | "root_hash_jcs"> = {
     type: "Bundle",
+    bundle_version: schema ? 2 : 1,
     scenario: state.scenario_id ?? "freeform",
     agents: {
       aria: state.agents.aria.did,
@@ -304,6 +352,7 @@ function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
     },
     tribunal_mode: state.tribunal_mode,
     opened_by_role: state.opened_by_role,
+    ...(schema ? { state_schema: schema } : {}),
     evidence: state.evidence.signed,
     messages: state.history,
     outcome,
@@ -330,8 +379,7 @@ async function escalateAndFinalize(
     agents: state.agents,
     evidence: state.evidence,
     history: state.history,
-    scenario: state.scenario,
-    claim: state.claim,
+    scenario: state.scenario ?? undefined,
   });
   state.ruling = { votes, ruling };
   events.push({ kind: "jury.ruled" });
@@ -425,6 +473,38 @@ function finalizeAsWithdrawn(
   return events;
 }
 
+/** When an Accept lands on an Amend AND the Accept is from the counterparty
+ *  (not self-Accept), emit an `amendment.applied` event. The amendment itself
+ *  is in the audit trail (the AmendMsg + the Accept); this event surfaces the
+ *  application as a discrete observable so the dashboard / auditor can render
+ *  it without re-inferring from the message graph. */
+function detectAmendmentApplications(
+  state: DisputeState,
+  newMsg: SignedMessage,
+): StepEvent[] {
+  if (newMsg.type !== "Accept") return [];
+  const target = (newMsg as AcceptMsg).payload.target_msg_hash;
+  const targetMsg = state.history.find((m) => docHash(m) === target);
+  if (!targetMsg || targetMsg.type !== "Amend") return [];
+  // Self-Accept is a no-op for amendment application.
+  if (targetMsg.from_agent === newMsg.from_agent) return [];
+  const accepterRole: AgentRole | undefined =
+    newMsg.from_agent === state.agents.aria.did
+      ? "aria"
+      : newMsg.from_agent === state.agents.atlas.did
+        ? "atlas"
+        : undefined;
+  if (!accepterRole) return [];
+  return [
+    {
+      kind: "amendment.applied",
+      role: accepterRole,
+      key: (targetMsg as AmendMsg).payload.key,
+      amend_msg_hash: target,
+    },
+  ];
+}
+
 function applyAttempt(
   state: DisputeState,
   role: AgentRole,
@@ -440,6 +520,7 @@ function applyAttempt(
   }
   const signed = pushMessage(state, role, body);
   events.push({ kind: "message.accepted", role, signed, hash: docHash(signed) });
+  events.push(...detectAmendmentApplications(state, signed));
   return { events, accepted: true };
 }
 

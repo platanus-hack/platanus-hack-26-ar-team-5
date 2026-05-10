@@ -10,6 +10,7 @@ import {
 } from "./refs";
 import type {
   AcceptMsg,
+  AmendMsg,
   CounterProposeMsg,
   DealState,
   Message,
@@ -18,6 +19,8 @@ import type {
   SignedEvidence,
   SignedMessage,
 } from "./types";
+import type { Scenario } from "./scenarios/types";
+import type { StateSchemaResult } from "./state_schema";
 
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
 
@@ -40,6 +43,10 @@ export type OrchestratorConfig = {
   maxRounds: number; // default 5
   deadlockEpsilon: number; // utility delta below which we count as flat
   deadlockFlatRounds: number; // # of consecutive flat rounds before escalation
+  /** Optional scenario reference. When provided, the orchestrator validates
+   *  every Propose/CounterPropose state against `scenario.state_schema`. When
+   *  absent, schema validation is skipped (legacy / schema-less disputes). */
+  scenario?: Scenario;
 };
 
 export const DEFAULT_CONFIG: OrchestratorConfig = {
@@ -99,7 +106,7 @@ function isConverged(history: SignedMessage[]): { hash: string; state: DealState
   }
   for (const [targetHash, fromSet] of acceptsByTarget) {
     if (fromSet.size >= 2) {
-      // find the proposal it points at
+      // find the proposal it points at (Accepts on Amend don't converge anything)
       for (const m of history) {
         if (m.type !== "Propose" && m.type !== "CounterPropose") continue;
         if (docHash(m as SignedMessage) === targetHash) {
@@ -112,6 +119,26 @@ function isConverged(history: SignedMessage[]): { hash: string; state: DealState
     }
   }
   return null;
+}
+
+/** Validate a Propose/CounterPropose state object against the scenario's
+ *  declared schema. Returns null on pass, or a human-readable error string. */
+export function validateStateAgainstSchema(
+  state: unknown,
+  schema: StateSchemaResult,
+): string | null {
+  const result = schema.zodSchema.safeParse(state);
+  if (result.success) return null;
+  const issues = result.error.issues
+    .slice(0, 4)
+    .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)
+    .join("\n");
+  return (
+    `state does not match scenario schema (domain="${schema.domain}").\n` +
+    `Schema: ${JSON.stringify(schema.jsonSchema)}\n` +
+    `Issues:\n${issues}\n` +
+    `Note: introduce mid-flight clauses via the amendments[] slot, not unknown top-level keys.`
+  );
 }
 
 export type RunResult = {
@@ -130,6 +157,7 @@ export async function* runNegotiation(
   config: OrchestratorConfig = DEFAULT_CONFIG,
 ): AsyncGenerator<OrchestratorEvent, RunResult, void> {
   const history: SignedMessage[] = [];
+  const stateSchema = config.scenario?.state_schema;
 
   // Boot events
   for (const role of ["aria", "atlas", "tribunal"] as const) {
@@ -329,6 +357,20 @@ export async function* runNegotiation(
             };
             continue;
           }
+          // Schema validation for the proposed state.
+          if (stateSchema) {
+            const err = validateStateAgainstSchema(body.payload.state, stateSchema);
+            if (err) {
+              yield {
+                kind: "message.rejected",
+                round,
+                role,
+                reason: reject(err),
+                attempt,
+              };
+              continue;
+            }
+          }
         }
 
         // Reveal monotonicity (one reveal per domain per agent)
@@ -347,57 +389,99 @@ export async function* runNegotiation(
           }
         }
 
-        // Accept: target must be a known Propose/CounterPropose
+        // Amend validation: key must be non-empty and must NOT collide with a
+        // declared schema field (declared fields go through Propose/CounterPropose,
+        // not Amend — Amend is for clauses the schema didn't anticipate).
+        if (body.type === "Amend") {
+          const key = (body as AmendMsg).payload?.key;
+          if (typeof key !== "string" || key.length === 0) {
+            yield {
+              kind: "message.rejected",
+              round,
+              role,
+              reason: reject(`Amend requires payload.key (non-empty string).`),
+              attempt,
+            };
+            continue;
+          }
+          if (stateSchema) {
+            const declared = Object.keys(
+              (stateSchema.jsonSchema as { properties?: Record<string, unknown> }).properties ?? {},
+            );
+            if (declared.includes(key) && key !== "amendments") {
+              yield {
+                kind: "message.rejected",
+                round,
+                role,
+                reason: reject(
+                  `Amend.key '${key}' collides with a declared schema field. ` +
+                    `Declared fields go through Propose/CounterPropose, not Amend. ` +
+                    `Use Amend for genuinely novel clauses the schema didn't anticipate.`,
+                ),
+                attempt,
+              };
+              continue;
+            }
+          }
+        }
+
+        // Accept: target must be a known Propose/CounterPropose OR a known Amend.
         if (body.type === "Accept") {
           const target = body.payload.target_msg_hash;
-          const found = history.some(
-            (m) =>
-              (m.type === "Propose" || m.type === "CounterPropose") && docHash(m) === target,
-          );
-          if (!found) {
+          const targetMsg = history.find((m) => docHash(m) === target);
+          const isDealAccept =
+            targetMsg?.type === "Propose" || targetMsg?.type === "CounterPropose";
+          const isAmendAccept = targetMsg?.type === "Amend";
+          if (!isDealAccept && !isAmendAccept) {
             yield {
               kind: "message.rejected",
               round,
               role,
               reason: reject(
-                `Accept must target the sha256 hash of a prior Propose or CounterPropose message; '${target}' is not one. Re-pick the hash from history.`,
+                `Accept must target the sha256 hash of a prior Propose, CounterPropose, or Amend; '${target}' is not one. Re-pick the hash from history.`,
               ),
               attempt,
             };
             continue;
           }
 
-          // Sequential-Accept rule: when the counterparty has just Accepted a
-          // target, your Accept MUST target the same hash. Accepting a
-          // different target creates competing endorsements that never
-          // converge and leave the bundle's outcome ambiguous from an
-          // auditor's perspective. To reject what they Accepted, submit a
-          // CounterPropose / Critique / Escalate instead.
-          const counterpartyDid =
-            agents[role === "aria" ? "atlas" : "aria"].did;
-          let lastCounterMove: SignedMessage | undefined;
-          for (let i = history.length - 1; i >= 0; i--) {
-            if (history[i]!.from_agent === counterpartyDid) {
-              lastCounterMove = history[i];
-              break;
+          // Self-Accept on Amend doesn't apply the amendment — only the
+          // counterparty's Accept does. We allow self-Accept for symmetry but
+          // it's a no-op semantically.
+
+          // Cross-accept rule: only fires for deal-Accepts. Amend-Accepts are
+          // independent of the deal flow and can land any time.
+          if (isDealAccept) {
+            const counterpartyDid =
+              agents[role === "aria" ? "atlas" : "aria"].did;
+            let lastCounterMove: SignedMessage | undefined;
+            for (let i = history.length - 1; i >= 0; i--) {
+              if (history[i]!.from_agent === counterpartyDid) {
+                lastCounterMove = history[i];
+                break;
+              }
             }
-          }
-          if (lastCounterMove && lastCounterMove.type === "Accept") {
-            const cpTarget = (lastCounterMove as AcceptMsg).payload.target_msg_hash;
-            if (cpTarget !== target) {
-              const cpIdx = history.indexOf(lastCounterMove);
-              yield {
-                kind: "message.rejected",
-                round,
-                role,
-                reason: reject(
-                  `cross-accept rejected. Counterparty's most recent move (m${cpIdx + 1}) was Accept(${cpTarget.slice(0, 26)}…). ` +
-                    `Your Accept must target the SAME hash to converge. ` +
-                    `Either Accept ${cpTarget.slice(0, 26)}…, or submit a CounterPropose / Critique to keep negotiating.`,
-                ),
-                attempt,
-              };
-              continue;
+            if (lastCounterMove && lastCounterMove.type === "Accept") {
+              const cpTarget = (lastCounterMove as AcceptMsg).payload.target_msg_hash;
+              const cpTargetMsg = history.find((m) => docHash(m) === cpTarget);
+              const cpWasDealAccept =
+                cpTargetMsg?.type === "Propose" ||
+                cpTargetMsg?.type === "CounterPropose";
+              if (cpWasDealAccept && cpTarget !== target) {
+                const cpIdx = history.indexOf(lastCounterMove);
+                yield {
+                  kind: "message.rejected",
+                  round,
+                  role,
+                  reason: reject(
+                    `cross-accept rejected. Counterparty's most recent move (m${cpIdx + 1}) was Accept(${cpTarget.slice(0, 26)}…). ` +
+                      `Your Accept must target the SAME hash to converge. ` +
+                      `Either Accept ${cpTarget.slice(0, 26)}…, or submit a CounterPropose / Critique to keep negotiating.`,
+                  ),
+                  attempt,
+                };
+                continue;
+              }
             }
           }
         }

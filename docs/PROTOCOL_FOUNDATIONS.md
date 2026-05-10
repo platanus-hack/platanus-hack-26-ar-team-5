@@ -297,6 +297,28 @@ substrate is what lets us claim "we ran them" vs "we say we ran them".
 
 ---
 
+## §G. Observability fields (v2)
+
+**`context_summary` on `open_dispute`.** A required, human-readable headline
+attached to every dispute at open time (`src/mcp_server.ts:open_dispute`,
+`src/dispute_store.ts:openDispute`). Validated server-side as
+`z.string().min(1).max(60)` and surfaced verbatim by `join_dispute` /
+`get_dispute` so the joiner sees the same label the opener typed. Required
+because dashboards, audit indices, and observability traces need a stable
+glanceable identifier per dispute that is not a UUID and not the full claim
+prose; a 60-char hard cap keeps it list-rendering safe and prevents authors
+from smuggling argumentation into the headline slot.
+
+**Per-move `summary` on `MessageBase`.** A short label on every message
+(`src/types.ts:MessageBase.summary`). The TypeScript shape marks it optional,
+but the wire surface in `src/mcp_server.ts:submit_message` enforces it as
+required with `z.string().min(1).max(60)`; the comment specifies a 2–4 word
+characterisation ("Demands full refund", "Counters with $600"). The
+dashboard timeline renders this label per move; rationale and payload remain
+the source of truth that the counterparty and tribunal read.
+
+---
+
 ## What's next (not yet implemented)
 
 These are anchored in literature too, but live in `FUTURE.md` rather than the

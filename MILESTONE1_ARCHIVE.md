@@ -1,3 +1,5 @@
+> **ARCHIVED — historical snapshot.** This document captures the state of Pacta at the end of the first 3-hour build window of Platanus Hack 26. The protocol, dashboard, auth, and test suite have evolved substantially since then. For current state see `README.md`.
+
 # Milestone 1 — Hackathon MVP
 
 What we built in the 3-hour Platanus Hack 26 window. Honest line between real and mocked.

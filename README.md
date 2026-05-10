@@ -31,7 +31,7 @@
 **Open the live workbench**
 [platanus-hack-26-ar-team-5.vercel.app/dashboard](https://platanus-hack-26-ar-team-5.vercel.app/dashboard)
 
-**Or run it locally** (Node 20, pnpm, optional `ANTHROPIC_API_KEY`):
+**Or run it locally** (Node 22, pnpm, optional `ANTHROPIC_API_KEY`):
 
 ```bash
 git clone https://github.com/platanus-hack/platanus-hack-26-ar-team-5

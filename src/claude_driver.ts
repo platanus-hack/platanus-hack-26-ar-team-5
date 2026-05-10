@@ -48,11 +48,18 @@ function buildUserPrompt(args: {
 }): string {
   const ownEvidence = args.evidence.filter((e) => e.submitter === args.did);
   const otherEvidence = args.evidence.filter((e) => e.submitter !== args.did);
+  const schema = args.scenario.state_schema;
   const sections: string[] = [
     `## Round ${args.round}. It is your turn (${args.scenario.agents[args.role].display_name}).`,
     ``,
     `## Case`,
     args.scenario.case_summary,
+    ``,
+    `## State schema (your propose/counter_propose state MUST conform)`,
+    `domain: ${schema.domain}`,
+    `description: ${schema.description}`,
+    `JSON Schema: ${JSON.stringify(schema.jsonSchema, null, 2)}`,
+    `Always include "amendments" (default []). Unknown top-level keys are REJECTED by the orchestrator — use the amend tool for clauses the schema didn't anticipate.`,
     ``,
     `## Your DID`,
     args.did,
@@ -85,7 +92,8 @@ type ToolName =
   | "critique"
   | "accept"
   | "reveal"
-  | "escalate";
+  | "escalate"
+  | "amend";
 
 function toolToBody(args: {
   toolName: ToolName;
@@ -105,7 +113,7 @@ function toolToBody(args: {
         evidence_refs,
         parent_refs,
         payload: {
-          state: input.state as { credit_usd: number; terms: string },
+          state: input.state as Record<string, unknown>,
           rationale: String(input.rationale ?? ""),
           utility_for_self: Number(input.utility_for_self ?? 0),
         },
@@ -118,7 +126,7 @@ function toolToBody(args: {
         evidence_refs,
         parent_refs,
         payload: {
-          state: input.state as { credit_usd: number; terms: string },
+          state: input.state as Record<string, unknown>,
           rationale: String(input.rationale ?? ""),
           utility_for_self: Number(input.utility_for_self ?? 0),
         },
@@ -167,6 +175,19 @@ function toolToBody(args: {
           reason: String(input.reason ?? ""),
           requested_action:
             (input.requested_action as "mediator" | "deadline_extension") ?? "mediator",
+        },
+      };
+    case "amend":
+      return {
+        type: "Amend",
+        round,
+        from_agent: did,
+        evidence_refs,
+        parent_refs,
+        payload: {
+          key: String(input.key ?? ""),
+          value: input.value,
+          rationale: String(input.rationale ?? ""),
         },
       };
   }

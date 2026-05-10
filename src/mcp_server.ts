@@ -57,7 +57,7 @@ Pacta has exactly TWO party slots: \`aria\` and \`atlas\`. These are NOT names �
      - \`your_turn\`: act now (full state in the response).
      - \`finalized\`: jump to step 4 (full state including the bundle in the response).
      - \`timeout\`: counterparty hasn't moved yet. Just call \`wait_for_turn\` again — the response is a thin heartbeat, no full state. Do NOT poll \`get_dispute\` in a loop.
-   - When it IS your turn: \`get_dispute\` for the latest, then \`submit_message\` with one of Propose / Critique / CounterPropose / Accept / Reveal / Escalate.
+   - When it IS your turn: \`get_dispute\` for the latest, then \`submit_message\` with one of Propose / Critique / CounterPropose / Accept / Reveal / Escalate / Amend.
 4. **Done.** When finalized: extract the bundle from the dispute, call \`verify_bundle({ bundle })\`, report the outcome + verification result + final terms.
 
 # Reference forms (stop computing sha256 manually)
@@ -92,12 +92,14 @@ This means: when you decide to "say yes", look at the counterparty's MOST RECENT
 # Self-Accept
 You CAN Accept a CounterPropose you authored — useful as a convergence-anchor pattern (you re-state agreed terms in a CP, then both you and the counterparty Accept it). In a normal flow, prefer Accepting the counterparty's CP — it's one fewer turn.
 
-# Payload shapes
-- Propose / CounterPropose: \`{ state: { credit_usd, terms }, rationale, utility_for_self }\` — \`credit_usd\` is 0 for non-monetary disputes; \`terms\` is the deliberation text.
+# Payload shapes — STATE SHAPE IS SCENARIO-SPECIFIC
+The shape of \`state\` (in Propose / CounterPropose) is declared by the scenario's \`state_schema\` (returned by open_dispute / join_dispute / get_dispute). USD-credit scenarios use \`{ credit_usd, terms, amendments }\`. Oncology uses \`{ coverage_envelope_usd, regimen, duration_months, stop_rules, amendments }\`. Publication-terms scenarios use \`{ timing, redactions, corporate_review, rationale_summary, amendments }\`. ALWAYS read the schema BEFORE proposing: unknown top-level keys are rejected.
+- Propose / CounterPropose: \`{ state: <matches state_schema>, rationale, utility_for_self }\`
 - Critique: \`{ target_msg_hash, rationale }\`
-- Accept: \`{ target_msg_hash }\`
+- Accept: \`{ target_msg_hash }\` — target a Propose/CounterPropose to converge, or an Amend to ratify it.
 - Reveal: \`{ domain, information }\`
 - Escalate: \`{ reason, requested_action: "mediator" | "deadline_extension" }\`
+- Amend: \`{ key, value, rationale }\` — propose a NEW clause not in the schema. Becomes binding only when the COUNTERPARTY signs an Accept on your Amend's hash. Use this for cláusulas the schema didn't anticipate (e.g. mid-flight oncology amendment "imaging cadence at month 5"). Self-Accept is a no-op for amendments — only the counterparty's Accept applies.
 
 # Bundle verification
 On finalize, call \`verify_bundle({ bundle: <get_dispute.finalized> })\`. Modern bundles include \`root_hash_jcs\` (the canonical-JCS string used to compute root_hash) — verify_bundle uses it for byte-deterministic verification immune to JSON round-trip noise. All per-doc Ed25519 signatures + the root_hash should pass.
@@ -551,6 +553,7 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
               "Accept",
               "Reveal",
               "Escalate",
+              "Amend",
             ]),
             round: z.number().int().describe("Must match the dispute's current_round."),
             from_agent: z
@@ -576,11 +579,12 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
               .record(z.string(), z.unknown())
               .describe(
                 "Per-message-type payload. " +
-                  "Propose/CounterPropose: { state: {credit_usd, terms}, rationale, utility_for_self }. " +
+                  "Propose/CounterPropose: { state: <matches scenario state_schema>, rationale, utility_for_self }. The state's shape is scenario-specific — read state_schema from open_dispute/join_dispute/get_dispute before constructing. Unknown top-level keys are rejected. Always include 'amendments' (default []). " +
                   "Critique: { target_msg_hash, rationale } — target_msg_hash accepts mN/msg_id/sha256. " +
-                  "Accept: { target_msg_hash } — accepts mN/msg_id/sha256, must resolve to a Propose/CounterPropose. " +
+                  "Accept: { target_msg_hash } — accepts mN/msg_id/sha256, must resolve to a Propose/CounterPropose (converges) or an Amend (ratifies it). " +
                   "Reveal: { domain, information }. " +
-                  "Escalate: { reason, requested_action }.",
+                  "Escalate: { reason, requested_action }. " +
+                  "Amend: { key, value, rationale } — introduces a clause the schema didn't anticipate. Becomes binding only when the COUNTERPARTY Accepts the Amend's hash.",
               ),
           })
           .describe("The message body to submit. msg_id and timestamp are filled by Pacta."),

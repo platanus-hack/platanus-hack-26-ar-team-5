@@ -72,6 +72,7 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
     maxRounds: 5,
     deadlockEpsilon: 0.05,
     deadlockFlatRounds: 2,
+    scenario,
     ...options.orchestratorConfig,
   };
 
@@ -116,6 +117,7 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
 
   const bundleNoHash: Omit<Bundle, "root_hash" | "root_hash_jcs"> = {
     type: "Bundle",
+    bundle_version: 2,
     scenario: scenario.id,
     agents: {
       aria: agents.aria.did,
@@ -126,6 +128,12 @@ export async function* runPacta(options: RunOptions = {}): AsyncGenerator<Stream
     // CLI demo: both sides Claude-driven from a scenario template, no real
     // human-mapped opener. Keep null so audit consumers don't misattribute.
     opened_by_role: null,
+    state_schema: {
+      ref: scenario.state_schema.ref,
+      domain: scenario.state_schema.domain,
+      description: scenario.state_schema.description,
+      json_schema: scenario.state_schema.jsonSchema,
+    },
     evidence: pool.signed,
     messages: result.value.history,
     outcome: bundleOutcome,

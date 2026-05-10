@@ -50,10 +50,34 @@ export type OpenDisputeArgs = {
   tribunal_mode?: TribunalMode;
 };
 
+/** JSON-safe view of a state schema, stripped of the runtime zod object. */
+export type StateSchemaView = {
+  ref: string;
+  domain: string;
+  description: string;
+  json_schema: Record<string, unknown>;
+  aggregations: Record<string, "median" | "majority" | "intersect" | "first">;
+};
+
+function stateSchemaView(scenario: Scenario | null): StateSchemaView | null {
+  const s = scenario?.state_schema;
+  if (!s) return null;
+  return {
+    ref: s.ref,
+    domain: s.domain,
+    description: s.description,
+    json_schema: s.jsonSchema,
+    aggregations: s.aggregations,
+  };
+}
+
 export type OpenDisputeResult = {
   dispute_id: string;
   claim: string | null;
   scenario: Scenario | null;
+  /** JSON-safe schema metadata. The joiner inspects this BEFORE claiming a
+   *  role to consent to the shape of states and remedies in this dispute. */
+  state_schema: StateSchemaView | null;
   agents: { aria: string; atlas: string; tribunal: string };
   evidence_summary: Array<{ id: string; tier: string; submitter: string; hash: string }>;
   your_role: AgentRole;
@@ -133,6 +157,7 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
     dispute_id,
     claim: live.claim,
     scenario,
+    state_schema: stateSchemaView(scenario),
     agents: {
       aria: agents.aria.did,
       atlas: agents.atlas.did,
@@ -159,6 +184,12 @@ export type JoinDisputeResult = {
   dispute_id: string;
   claim: string | null;
   scenario: Scenario | null;
+  /** State-schema metadata. By calling join_dispute the joiner CONSENTS to
+   *  this schema as the contract — every Propose/CounterPropose state and the
+   *  Tribunal's Ruling.remedy will be validated against it. Inspect before
+   *  claiming a role: schemas with overly-permissive or biased fields are
+   *  observable here and rejectable by simply not joining. */
+  state_schema: StateSchemaView | null;
   agents: { aria: string; atlas: string; tribunal: string };
   evidence_summary: Array<{ id: string; tier: string; submitter: string; hash: string }>;
   your_role: AgentRole;
@@ -189,6 +220,7 @@ export async function joinDispute(args: {
     dispute_id: s.dispute_id,
     claim: s.claim,
     scenario: s.scenario,
+    state_schema: stateSchemaView(s.scenario),
     agents: {
       aria: s.agents.aria.did,
       atlas: s.agents.atlas.did,
@@ -280,6 +312,20 @@ export async function dumpDispute(dispute_id: string) {
     hash: docHash(e),
     ref: `e${i + 1}`,
   }));
+  // Embed the state-schema metadata so a JOINER (who has not yet claimed a
+  // role) can inspect the shape of every Propose/CounterPropose state and the
+  // tribunal's Ruling.remedy BEFORE consenting to the dispute. Schema is the
+  // contract — opener proposes it, joiner consents by claiming.
+  const schema = s.scenario?.state_schema;
+  const state_schema = schema
+    ? {
+        ref: schema.ref,
+        domain: schema.domain,
+        description: schema.description,
+        json_schema: schema.jsonSchema,
+        aggregations: schema.aggregations,
+      }
+    : null;
   return {
     dispute_id: s.dispute_id,
     claim: s.claim,
@@ -295,6 +341,7 @@ export async function dumpDispute(dispute_id: string) {
     max_rounds: s.max_rounds,
     tribunal_mode: s.tribunal_mode,
     opened_by_role: s.opened_by_role,
+    state_schema,
     history,
     pending_feedback: s.pending_feedback,
     evidence,

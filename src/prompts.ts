@@ -1,22 +1,19 @@
 /**
  * Anthropic tools shared across scenarios. Per-scenario system prompts and
- * mock scripts live in src/scenarios/<id>.ts.
+ * mock scripts live in src/scenarios/<id>.ts. Per-scenario state shape is
+ * declared in `state_schema` on the scenario; the negotiation tools here
+ * accept any object shape and the orchestrator validates against the
+ * scenario's schema in sign-time. The agent learns the actual shape from
+ * its system prompt + the schema embedded in the user prompt.
  */
 
 const STATE_SCHEMA = {
   type: "object",
-  properties: {
-    credit_usd: {
-      type: "number",
-      description:
-        "Numeric coverage / credit envelope. In money-bound cases this is USD; in non-monetary cases (e.g. healthcare authorization) it encodes the coverage envelope (0=baseline, max=full prescription).",
-    },
-    terms: {
-      type: "string",
-      description: "Short human-readable summary of the deal/treatment terms.",
-    },
-  },
-  required: ["credit_usd", "terms"],
+  description:
+    "State payload. Shape is declared by the SCENARIO's state_schema (see your system prompt and the User prompt's '## State schema' block). " +
+    "Unknown top-level keys are rejected by the orchestrator — use the 'amendments' array to introduce mid-flight clauses the schema didn't anticipate. " +
+    "Always include 'amendments' (default []).",
+  additionalProperties: true,
 } as const;
 
 const COMMON_REFS = {
@@ -105,7 +102,7 @@ export const TOOLS = [
   {
     name: "accept",
     description:
-      "Accept a prior Propose/CounterPropose. Target it by 'mN', msg_id, or sha256:... hash.",
+      "Accept a prior Propose/CounterPropose to converge, or accept a prior Amend to ratify a mid-flight clause. Target it by 'mN', msg_id, or sha256:... hash.",
     input_schema: {
       type: "object",
       properties: {
@@ -113,7 +110,7 @@ export const TOOLS = [
         target_msg_hash: {
           type: "string",
           description:
-            "Reference to the Propose/CounterPropose you accept — 'mN', msg_id, or sha256:... hash.",
+            "Reference to the Propose/CounterPropose/Amend you accept — 'mN', msg_id, or sha256:... hash.",
         },
       },
       required: ["evidence_refs", "parent_refs", "target_msg_hash"],
@@ -151,6 +148,28 @@ export const TOOLS = [
         },
       },
       required: ["evidence_refs", "parent_refs", "reason", "requested_action"],
+    },
+  },
+  {
+    name: "amend",
+    description:
+      "Propose a NEW clause not in the schema. The amendment becomes binding only when the COUNTERPARTY Accepts your Amend's hash. Use this for cláusulas the schema didn't anticipate (e.g. mid-flight 'imaging cadence at month 5' for an oncology plan). Self-Accept is a no-op for amendments — only the counterparty's Accept applies.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ...COMMON_REFS,
+        key: {
+          type: "string",
+          description:
+            "Field name being introduced. Must NOT collide with a declared schema field (those go through propose/counter_propose).",
+        },
+        value: {
+          description:
+            "Free-form value associated with the new clause. Any JSON-serializable shape.",
+        },
+        rationale: { type: "string" },
+      },
+      required: ["evidence_refs", "parent_refs", "key", "value", "rationale"],
     },
   },
 ] as const;

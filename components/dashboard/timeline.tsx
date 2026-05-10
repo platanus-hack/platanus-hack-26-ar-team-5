@@ -26,6 +26,7 @@ const TYPE_LABEL: Record<DumpMessage["type"], string> = {
   Accept: "Accept",
   Escalate: "Escalate",
   Withdraw: "Withdraw",
+  Amend: "Amend",
 };
 
 export function Timeline({ dispute }: Props) {

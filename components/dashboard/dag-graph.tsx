@@ -25,6 +25,7 @@ const TYPE_INFO: Record<
   Accept: { label: "Accept", color: "#E7C59A", icon: "✓" },
   Escalate: { label: "Escalate", color: "#FF7A59", icon: "↗" },
   Withdraw: { label: "Withdraw", color: "#E25B5B", icon: "✕" },
+  Amend: { label: "Amend", color: "#C084FC", icon: "+" },
 };
 
 const VOTE_COLOR_BY_OUTCOME: Record<RulingOutcome, string> = {

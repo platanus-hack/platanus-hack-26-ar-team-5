@@ -71,13 +71,21 @@ export type DumpWithdrawMsg = DumpMessageBase & {
   payload: { reason: string };
 };
 
+/** Schema-extension primitive — clauses introduced mid-flight that bind only
+ *  when the counterparty Accepts the AmendMsg's hash. */
+export type DumpAmendMsg = DumpMessageBase & {
+  type: "Amend";
+  payload: { key: string; value: unknown; rationale: string };
+};
+
 export type DumpMessage =
   | DumpProposeMsg
   | DumpCritiqueMsg
   | DumpAcceptMsg
   | DumpRevealMsg
   | DumpEscalateMsg
-  | DumpWithdrawMsg;
+  | DumpWithdrawMsg
+  | DumpAmendMsg;
 
 export type RulingOutcome =
   | "claimant_prevails"
@@ -117,12 +125,28 @@ export type DumpRuling = {
 
 export type DumpSignedRuling = SignedDump<DumpRuling>;
 
+/** Schema metadata embedded in v2 bundles. Lets a third-party auditor read
+ *  `final_state` / `remedy` without assuming USD or any other domain. */
+export type BundleStateSchema = {
+  ref: string;
+  domain: string;
+  description: string;
+  json_schema: Record<string, unknown>;
+};
+
 export type Bundle = {
   type: "Bundle";
+  /** Bundle format version. v1 = legacy (no state_schema); v2 = adds embedded
+   *  state_schema and Amend message support. Optional for backward compat with
+   *  older bundles deserialized into the dashboard. */
+  bundle_version?: 1 | 2;
   scenario: string;
   agents: { aria: string; atlas: string; tribunal: string };
   tribunal_mode: TribunalMode;
   opened_by_role: AgentRole | null;
+  /** Present on v2 bundles. Absent (undefined) on v1 — render the dashboard
+   *  with generic "{key}: {value}" tooltips when missing. */
+  state_schema?: BundleStateSchema;
   evidence: unknown[];
   messages: unknown[];
   outcome:
@@ -145,6 +169,17 @@ export type Bundle = {
   root_hash_jcs?: string;
 };
 
+/** Schema metadata in the dispute dump (v2 disputes). Includes the per-field
+ *  aggregation map alongside the JSON Schema so the dashboard can label fields
+ *  with how the tribunal would combine them. */
+export type DumpStateSchema = {
+  ref: string;
+  domain: string;
+  description: string;
+  json_schema: Record<string, unknown>;
+  aggregations: Record<string, "median" | "majority" | "intersect" | "first">;
+};
+
 export type DisputeDump = {
   dispute_id: string;
   claim: string | null;
@@ -156,6 +191,8 @@ export type DisputeDump = {
   max_rounds: number;
   tribunal_mode: TribunalMode;
   opened_by_role: AgentRole | null;
+  /** State-schema metadata for v2 disputes. Null for schema-less / legacy. */
+  state_schema?: DumpStateSchema | null;
   history: DumpMessage[];
   pending_feedback: string[];
   evidence: DumpEvidence[];

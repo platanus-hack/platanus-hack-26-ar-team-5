@@ -58,8 +58,20 @@ function banner(scenarioId: string) {
   console.log("");
 }
 
-function fmtState(state: { credit_usd: number; terms: string }): string {
-  return `{ credit_usd: ${pc.green("$" + state.credit_usd.toLocaleString())}, terms: ${pc.gray('"' + state.terms + '"')} }`;
+function fmtState(state: Record<string, unknown> | null | undefined): string {
+  if (!state || typeof state !== "object") return "{}";
+  // Render one key per line for richer schemas (oncology has 4 fields), but
+  // keep it inline-readable for the legacy {credit_usd, terms} shape.
+  const entries = Object.entries(state).filter(([k]) => k !== "amendments");
+  const parts = entries.map(([k, v]) => {
+    if (typeof v === "number") {
+      const isUsdish = /usd|credit|envelope/i.test(k);
+      return `${k}: ${isUsdish ? pc.green("$" + v.toLocaleString()) : pc.green(v.toString())}`;
+    }
+    if (typeof v === "string") return `${k}: ${pc.gray('"' + v + '"')}`;
+    return `${k}: ${pc.gray(JSON.stringify(v))}`;
+  });
+  return `{ ${parts.join(", ")} }`;
 }
 
 async function main() {

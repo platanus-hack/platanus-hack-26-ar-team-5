@@ -44,6 +44,60 @@ pnpm verify tmp/last-run.json         # re-check every Ed25519 signature
 
 ---
 
+## Tutorial: open your first dispute end-to-end
+
+Pick the path that matches what you're building. They're all the same protocol underneath.
+
+### Path A. Watch two AI agents negotiate (no setup)
+
+1. Open [the workbench](https://platanus-hack-26-ar-team-5.vercel.app/dashboard) and sign up with email + password (or use the demo account `platanus@hack.com` / `admin123`).
+2. In the sidebar, pick a scenario (e.g. `ai-overrun`) and click **Run**.
+3. Two Claudes negotiate live. Watch the SimpleTimeline fill with their moves and the Audit DAG render the signed graph below it.
+4. When they converge or the tribunal rules, click **Verify the bundle** to see the root hash.
+
+### Path B. Connect your own AI agent to Pacta (5 min)
+
+1. Sign up at [/login](https://platanus-hack-26-ar-team-5.vercel.app/login). If your email isn't on `ALLOWED_EMAILS`, ask an admin to set `profiles.allowed = true` in Supabase (or run locally with your email in `.env.local`).
+2. Go to **/dashboard/settings**, click **Create key**, name it (e.g. `cli-laptop`), copy the `pacta_live_<48 hex>` plaintext shown ONCE.
+3. Wire the key into Claude Desktop / Claude Code / Cursor — see "Authenticating with a Pacta API key" below for the JSON snippets.
+4. From your agent, call the MCP tools in this order:
+   ```
+   open_dispute({ claim, context_summary, your_role: "aria", counterparty_external: true })
+   ```
+   `context_summary` is a 5-word headline of the case (e.g. "Cloud SLA outage refund"). It's the dashboard label and is required.
+5. Pass the returned `dispute_id` to the counterparty agent. They call `join_dispute({ dispute_id, role: "atlas" })`.
+6. Both sides loop:
+   ```
+   submit_evidence({ tier: "S" | "A" | "B" | "C", title, body })
+   submit_message({ message: { type, summary, payload, ... } })
+   wait_for_turn({ dispute_id, role })
+   ```
+   `summary` on each move is a 2-4 word characterisation ("Counters with $600", "Cites force majeure"). Also required.
+7. Open `/dashboard` in your browser. Your dispute appears in the sidebar with the live status. Every move animates in. Click **See the moves** for the readable feed; **Verify the bundle** for the DAG and root hash.
+8. When finalized, anyone with the bundle JSON can re-verify offline:
+   ```bash
+   pnpm verify path/to/bundle.json
+   ```
+
+### Path C. Use Pacta as a TypeScript library (no MCP, no UI)
+
+```ts
+import { runPacta } from "pacta";
+
+for await (const event of runPacta({ scenario: "ai-overrun" })) {
+  if (event.kind === "message.accepted") {
+    console.log(event.role, event.signed.type, event.hash);
+  }
+  if (event.kind === "bundle") {
+    console.log("root_hash:", event.bundle.root_hash);
+  }
+}
+```
+
+That's the full demo loop. Drop in your own `scenario` (one file in `src/scenarios/`) to negotiate any structured deal.
+
+---
+
 ## What it is
 
 The agentic stack got two-thirds of the protocol right. **A2A** standardized how agents discover and message each other; **MCP** standardized how they invoke tools; **ERC-8004** is converging on identity and reputation. None of those define how two agents with structurally divergent utilities reach an **auditable agreement**.
@@ -146,7 +200,7 @@ Pacta is also an [MCP](https://modelcontextprotocol.io) server at `/api/mcp` (St
 
 Pacta requires an `X-Pacta-Key` header on every MCP call so token spend gets attributed to a real user (and quotas + the allowlist are enforced). To get a key:
 
-1. Sign in at [platanus-hack-26-ar-team-5.vercel.app/login](https://platanus-hack-26-ar-team-5.vercel.app/login) (locally: `http://localhost:3000/login`) using a Google account that's on the project's allowlist (`ALLOWED_EMAILS` in `.env.local`, or ask an admin to flip `profiles.allowed = true`).
+1. Sign up at [platanus-hack-26-ar-team-5.vercel.app/login](https://platanus-hack-26-ar-team-5.vercel.app/login) (locally: `http://localhost:3000/login`) with email + password. Email confirmation is off so you're in instantly. Make sure your email is on the project's allowlist (`ALLOWED_EMAILS` in `.env.local`, or ask an admin to flip `profiles.allowed = true`).
 2. Open **Settings → API keys** at `/dashboard/settings`. Click **Mint key**.
 3. Copy the key Pacta shows you — the format is `pacta_live_<48 hex>`. Pacta only stores the SHA-256 hash, so this is the **only time** the plaintext is visible. Lose it and you mint a new one.
 

@@ -13,6 +13,7 @@ import {
   getDispute,
   saveDispute,
 } from "./dispute_store";
+import { StaleVersionError } from "./storage";
 import type { MessageBody } from "./orchestrator";
 import {
   resolveMsgRef,
@@ -301,6 +302,7 @@ function buildBundle(state: DisputeState, outcome: Bundle["outcome"]): Bundle {
       tribunal: state.agents.tribunal.did,
     },
     tribunal_mode: state.tribunal_mode,
+    opened_by_role: state.opened_by_role,
     evidence: state.evidence.signed,
     messages: state.history,
     outcome,
@@ -349,13 +351,14 @@ async function terminateOnDeadline(state: DisputeState): Promise<StepEvent[]> {
   return escalateAndFinalize(state, "max_rounds_exhausted");
 }
 
-/** Build a signed Withdraw message and finalize the bundle as withdrawn.
- *  Either party can call this at any time with their role_token. */
-function buildWithdrawAndFinalize(
+/** Append a signed Withdraw message to the audit trail. Does NOT finalize the
+ *  bundle — the caller decides whether the Withdraw walks the dispute or
+ *  whether it's just a signed exit-on-record that still routes to the jury. */
+function signAndAppendWithdraw(
   state: DisputeState,
   role: AgentRole,
   reason: string,
-): { events: StepEvent[]; signed: SignedMessage } {
+): { events: StepEvent[]; signed: SignedMessage; hash: string } {
   const agent = state.agents[role];
   const body: WithdrawMsg = {
     msg_id: cryptoRandomId(),
@@ -372,20 +375,51 @@ function buildWithdrawAndFinalize(
     throw new Error("internal: self-signed Withdraw verification failed");
   state.history.push(signed);
   state.pending_feedback = [];
-  const h = docHash(signed);
-  const events: StepEvent[] = [
-    { kind: "message.accepted", role, signed, hash: h },
-    { kind: "withdrawn", role, reason },
-  ];
+  const hash = docHash(signed);
+  return {
+    events: [{ kind: "message.accepted", role, signed, hash }],
+    signed,
+    hash,
+  };
+}
+
+/** Did this side submit at least one Propose/CounterPropose? Used to decide
+ *  whether a Withdraw under tribunal_mode=binding can walk cleanly or has
+ *  to route to the jury. The intuition: once you've put an offer on the
+ *  table you've engaged the protocol — you can't undo your binding consent
+ *  to the tribunal by walking out. */
+function sideHasProposed(history: SignedMessage[], did: string): boolean {
+  return history.some(
+    (m) =>
+      m.from_agent === did &&
+      (m.type === "Propose" || m.type === "CounterPropose"),
+  );
+}
+
+function bothSidesEngaged(state: DisputeState): boolean {
+  return (
+    sideHasProposed(state.history, state.agents.aria.did) &&
+    sideHasProposed(state.history, state.agents.atlas.did)
+  );
+}
+
+/** Finalize a dispute as withdrawn (clean exit, no remedy, no winner). */
+function finalizeAsWithdrawn(
+  state: DisputeState,
+  role: AgentRole,
+  reason: string,
+  withdrawHash: string,
+): StepEvent[] {
+  const events: StepEvent[] = [{ kind: "withdrawn", role, reason }];
   const bundle = buildBundle(state, {
     kind: "withdrawn",
-    withdrawn_by: agent.did,
+    withdrawn_by: state.agents[role].did,
     withdrawn_role: role,
-    withdraw_msg_hash: h,
+    withdraw_msg_hash: withdrawHash,
     reason,
   });
   events.push({ kind: "bundle.built", bundle });
-  return { events, signed };
+  return events;
 }
 
 function applyAttempt(
@@ -406,6 +440,24 @@ function applyAttempt(
   return { events, accepted: true };
 }
 
+/** Save guarded by optimistic concurrency. If another writer (e.g. a Withdraw)
+ *  landed between our load and our save, we don't clobber it: we abort by
+ *  reloading and signal the caller via the returned `preempted` flag. */
+async function saveOrAbort(
+  state: DisputeState,
+): Promise<{ preempted: false } | { preempted: true; fresh: DisputeState }> {
+  try {
+    await saveDispute(state);
+    return { preempted: false };
+  } catch (err) {
+    if (err instanceof StaleVersionError) {
+      const fresh = await getDispute(state.dispute_id);
+      return { preempted: true, fresh };
+    }
+    throw err;
+  }
+}
+
 /** Drive any consecutive Claude-controlled turns until the next external turn or terminal state. */
 export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent[]> {
   const events: StepEvent[] = [];
@@ -414,21 +466,6 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
     state.controllers[state.turn] === "claude" &&
     state.current_round <= state.max_rounds
   ) {
-    // Defensive re-read: another writer (e.g. an out-of-band withdraw_dispute)
-    // may have finalized this dispute between iterations. We don't want to
-    // overwrite their finalized bundle with our stale in-memory state.
-    const fresh = await getDispute(state.dispute_id);
-    if (fresh.finalized) {
-      return events;
-    }
-    // Adopt the freshest history if it grew — a withdraw landed but didn't
-    // finalize (shouldn't happen, but defend).
-    if (fresh.history.length > state.history.length) {
-      state.history = fresh.history;
-      state.turn = fresh.turn;
-      state.current_round = fresh.current_round;
-      state.pending_feedback = fresh.pending_feedback;
-    }
     const role = state.turn;
     if (!state.scenario) {
       // Schema-less disputes have no system prompts — Pacta cannot drive
@@ -469,7 +506,8 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         `escalation_by_${role}:${reason}`,
       );
       events.push(...escalation);
-      await saveDispute(state);
+      const r = await saveOrAbort(state);
+      if (r.preempted) return events;
       return events;
     }
     const conv = isConverged(state.history);
@@ -485,7 +523,8 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         accepted_msg_hash: conv.hash,
       });
       events.push({ kind: "bundle.built", bundle });
-      await saveDispute(state);
+      const r = await saveOrAbort(state);
+      if (r.preempted) return events;
       return events;
     }
     const adv = advanceTurn(state);
@@ -494,12 +533,16 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
     if (state.current_round > state.max_rounds) {
       const term = await terminateOnDeadline(state);
       events.push(...term);
-      await saveDispute(state);
+      const r = await saveOrAbort(state);
+      if (r.preempted) return events;
       return events;
     }
     // Persist after every accepted Claude turn so that observers polling the
-    // store (e.g. the dashboard) see progress in real time.
-    await saveDispute(state);
+    // store (e.g. the dashboard) see progress in real time. If a Withdraw
+    // landed between our load and now, saveOrAbort returns preempted and we
+    // bail with the events we collected this iteration.
+    const r = await saveOrAbort(state);
+    if (r.preempted) return events;
   }
   return events;
 }
@@ -604,9 +647,27 @@ export function publicState(state: DisputeState) {
   };
 }
 
-/** Unilateral exit. The party identified by role_token signs a Withdraw and
- *  the bundle is finalized as `withdrawn`. Works under any tribunal_mode and
- *  at any phase before the dispute is already finalized. */
+/** Unilateral exit signed by one party.
+ *
+ *  How the bundle finalizes depends on tribunal_mode AND how engaged the two
+ *  sides already were when the Withdraw landed:
+ *
+ *  - tribunal_mode='none' → clean walk. Bundle is `kind: "withdrawn"`. The
+ *    parties opted out of the failsafe at open, so the audit trail just
+ *    records the exit with no remedy.
+ *
+ *  - tribunal_mode='binding' AND only one side has proposed (or neither) →
+ *    clean walk. Nothing for the tribunal to rule on: there's no real
+ *    counterparty offer and nothing the laudo can anchor to. Bundle is
+ *    `kind: "withdrawn"`.
+ *
+ *  - tribunal_mode='binding' AND BOTH sides have proposed (≥1 each) → the
+ *    Withdraw is signed into the audit trail (so it's clear who walked and
+ *    why), but it does NOT terminate the dispute on its own. The dispute
+ *    routes to the Tribunal exactly as if a max_rounds_exhausted escalation
+ *    had triggered, so the binding pre-commit at open actually binds — you
+ *    can't escape an unfavorable laudo by walking once you've engaged.
+ *    Bundle is `kind: "ruling"` with the Withdraw visible in messages. */
 export async function withdrawFromDispute(args: {
   dispute_id: string;
   role_token: string;
@@ -620,10 +681,33 @@ export async function withdrawFromDispute(args: {
   }
   if (!role)
     throw new Error("role_token mismatch — token does not match either party");
-  const reason = args.reason && args.reason.trim().length > 0
-    ? args.reason
-    : "no reason given";
-  const { events } = buildWithdrawAndFinalize(state, role, reason);
+  const reason =
+    args.reason && args.reason.trim().length > 0
+      ? args.reason
+      : "no reason given";
+
+  const { events: signEvents, hash: withdrawHash } = signAndAppendWithdraw(
+    state,
+    role,
+    reason,
+  );
+  const events: StepEvent[] = [...signEvents];
+
+  const routesToTribunal =
+    state.tribunal_mode === "binding" && bothSidesEngaged(state);
+
+  if (routesToTribunal) {
+    // Withdraw-as-Escalate. Audit trail keeps the Withdraw, but the laudo
+    // is still rendered against the existing record so the binding mode
+    // actually binds.
+    const escalation = await escalateAndFinalize(
+      state,
+      `withdraw_after_engagement:${role}`,
+    );
+    events.push(...escalation);
+  } else {
+    events.push(...finalizeAsWithdrawn(state, role, reason, withdrawHash));
+  }
   await saveDispute(state);
   return { events, state: publicState(state) };
 }

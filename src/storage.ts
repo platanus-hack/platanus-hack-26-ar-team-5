@@ -60,6 +60,14 @@ export type StoredDispute = {
    *  records that pre-date this field default to `binding` on load so the
    *  legacy behavior is preserved. */
   tribunal_mode: TribunalMode;
+  /** Which role's call to open_dispute set the tribunal_mode. The mode is
+   *  asymmetric power: an opener picking 'none' offloads risk to the joiner,
+   *  who only sees the choice via join_dispute and can refuse to claim. We
+   *  bake (role, mode) into the audit trail so downstream auditors can
+   *  score opener behavior across many disputes. `null` means the dispute
+   *  was opened by the demo seeder (both controllers are claude — there is
+   *  no real human-mapped opener to attribute the choice to). */
+  opened_by_role: AgentRole | null;
   pending_feedback: string[];
   finalized: { bundle: Bundle } | null;
   ruling: { votes: SignedVote[]; ruling: SignedRuling } | null;
@@ -67,6 +75,13 @@ export type StoredDispute = {
   /** Hex-encoded 32-byte Ed25519 private keys per role. Public keys + DIDs are
    *  re-derived from these on load — never stored. */
   agent_keys: { aria: string; atlas: string; tribunal: string };
+  /** Monotonic version counter, incremented on every successful save.
+   *  Used by saveDispute() for optimistic concurrency: a writer that loaded
+   *  version N can only save version N+1, otherwise the save is rejected so
+   *  the writer doesn't clobber a concurrent change (e.g. a withdraw landing
+   *  while a Claude-driven seed loop is mid-iteration). Records that pre-date
+   *  this field default to 0. */
+  version: number;
 };
 
 /** Hydrated runtime view: the StoredDispute plus the reconstructed AgentBook,
@@ -236,7 +251,21 @@ export async function loadDispute(dispute_id: string): Promise<LiveDispute | nul
   // Backfill tribunal_mode for records that pre-date the field — they were
   // all opened under the old binding-only semantics.
   const tribunal_mode: TribunalMode = stored.tribunal_mode ?? "binding";
-  return { ...stored, tribunal_mode, scenario, agents, evidence };
+  // Backfill version: 0 means "this record is from before optimistic locking
+  // existed". Subsequent saves still bump it normally.
+  const version: number =
+    typeof stored.version === "number" ? stored.version : 0;
+  // Backfill opened_by_role: legacy records weren't tagged.
+  const opened_by_role: AgentRole | null = stored.opened_by_role ?? null;
+  return {
+    ...stored,
+    tribunal_mode,
+    version,
+    opened_by_role,
+    scenario,
+    agents,
+    evidence,
+  };
 }
 
 /** Return a list of dispute ids currently held in storage. */
@@ -261,9 +290,47 @@ export async function deleteDispute(dispute_id: string): Promise<void> {
   await getStorage().delete(dispute_id);
 }
 
-/** Save a LiveDispute back to storage. The scenario/agents reconstructions are
- *  NOT persisted — they're recomputed on next load. signed_evidence IS stored. */
+/** Raised when a CAS save loses to a concurrent writer.
+ *  Caller should reload state and decide whether to retry, abort, or merge. */
+export class StaleVersionError extends Error {
+  constructor(
+    public readonly dispute_id: string,
+    public readonly expected: number,
+    public readonly actual: number,
+  ) {
+    super(
+      `stale version save on dispute ${dispute_id}: expected ${expected}, ` +
+        `storage has ${actual} — another writer landed first`,
+    );
+    this.name = "StaleVersionError";
+  }
+}
+
+/** Save a LiveDispute back to storage with optimistic concurrency.
+ *
+ *  The save succeeds only if storage's current version matches the version
+ *  the caller loaded. On conflict, throws StaleVersionError so the caller
+ *  can decide whether to retry from a fresh load (and re-apply their change)
+ *  or abort because the dispute is now finalized.
+ *
+ *  This closes the seed-loop-vs-withdraw race: a Claude-driven turn that
+ *  loads at version N and tries to save at N+1 will fail if a withdraw
+ *  landed at N+1 while we were calling Claude. The seed loop sees the
+ *  StaleVersionError, reloads, and finds finalized=true → bails cleanly. */
 export async function saveDispute(live: LiveDispute): Promise<void> {
+  const expectedVersion = live.version;
+  // CAS: re-read the stored version under the same key. If it doesn't match
+  // what the caller loaded, somebody else wrote in between — abort.
+  const current = await getStorage().get(live.dispute_id);
+  if (current && (current.version ?? 0) !== expectedVersion) {
+    throw new StaleVersionError(
+      live.dispute_id,
+      expectedVersion,
+      current.version ?? 0,
+    );
+  }
+  const nextVersion = expectedVersion + 1;
+  live.version = nextVersion;
   const stored: StoredDispute = {
     dispute_id: live.dispute_id,
     claim: live.claim,
@@ -277,11 +344,13 @@ export async function saveDispute(live: LiveDispute): Promise<void> {
     current_round: live.current_round,
     max_rounds: live.max_rounds,
     tribunal_mode: live.tribunal_mode,
+    opened_by_role: live.opened_by_role,
     pending_feedback: live.pending_feedback,
     finalized: live.finalized,
     ruling: live.ruling,
     created_at: live.created_at,
     agent_keys: live.agent_keys,
+    version: nextVersion,
   };
   await getStorage().put(stored);
 }

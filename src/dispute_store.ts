@@ -119,11 +119,13 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
     current_round: 1,
     max_rounds: args.max_rounds ?? 5,
     tribunal_mode,
+    opened_by_role: your_role,
     pending_feedback: [],
     finalized: null,
     ruling: null,
     created_at,
     agent_keys,
+    version: 0,
   };
   await saveLive(live);
 
@@ -292,6 +294,7 @@ export async function dumpDispute(dispute_id: string) {
     current_round: s.current_round,
     max_rounds: s.max_rounds,
     tribunal_mode: s.tribunal_mode,
+    opened_by_role: s.opened_by_role,
     history,
     pending_feedback: s.pending_feedback,
     evidence,
@@ -355,11 +358,16 @@ export async function openDemoDispute(args: {
     current_round: 1,
     max_rounds: args.max_rounds ?? 5,
     tribunal_mode,
+    // Demo seeder: no real human-mapped opener picked the mode. The dashboard
+    // operator did, but they're not a party — leave null so auditors don't
+    // attribute the mode choice to either Aria or Atlas.
+    opened_by_role: null,
     pending_feedback: [],
     finalized: null,
     ruling: null,
     created_at,
     agent_keys,
+    version: 0,
   };
   await saveLive(live);
   return { dispute_id, scenario, tribunal_mode, created_at };
@@ -378,6 +386,7 @@ export type DisputeSummary = {
   finalized: boolean;
   outcome_kind: "converged" | "ruling" | "deadline" | "withdrawn" | null;
   tribunal_mode: TribunalMode;
+  opened_by_role: AgentRole | null;
   controllers: Record<AgentRole, "external" | "claude">;
   agents: { aria: string; atlas: string };
 };
@@ -399,6 +408,7 @@ export async function listDisputeSummaries(): Promise<DisputeSummary[]> {
     finalized: !!s.finalized,
     outcome_kind: s.finalized?.bundle.outcome.kind ?? null,
     tribunal_mode: s.tribunal_mode,
+    opened_by_role: s.opened_by_role,
     controllers: s.controllers,
     agents: { aria: s.agents.aria.did, atlas: s.agents.atlas.did },
   }));

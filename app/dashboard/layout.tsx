@@ -18,7 +18,8 @@ export default async function DashboardLayout({
       <header className="sticky top-0 z-30 border-b border-line/70 bg-deep-space/85 backdrop-blur supports-[backdrop-filter]:bg-deep-space/65">
         <div className="flex h-14 items-center gap-6 px-6">
           <Link
-            href="/dashboard"
+            href="/"
+            aria-label="Pacta — back to landing"
             className="flex shrink-0 items-center gap-2 text-polar-white transition-opacity hover:opacity-90"
           >
             <LogoMark className="h-4 w-4 text-polar-white" />

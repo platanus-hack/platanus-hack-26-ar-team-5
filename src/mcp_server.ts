@@ -357,6 +357,13 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
           .describe(
             "Free-form description of what's being disputed. Required when scenario_id is absent. Example: 'Vendor A delivered our X feature 3 weeks late, claiming Z. We invoke the SLA penalty clause.'",
           ),
+        context_summary: z
+          .string()
+          .max(60)
+          .optional()
+          .describe(
+            "REQUIRED-IN-PRACTICE: 5-ish word headline of the dispute used as the dashboard label and audit-trail context. Examples: 'Cloud SLA outage refund', 'Late vendor delivery penalty', 'Shared dataset license dispute'. Hard-capped at 60 chars — keep it glanceable, not prose.",
+          ),
         scenario_id: z
           .string()
           .optional()
@@ -380,10 +387,11 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
           ),
       },
     },
-    async ({ claim, scenario_id, your_role, counterparty_external, tribunal_mode }) => {
+    async ({ claim, context_summary, scenario_id, your_role, counterparty_external, tribunal_mode }) => {
       try {
         const result = await openDispute({
           claim,
+          context_summary,
           scenario_id,
           your_role,
           counterparty_external: counterparty_external === true,
@@ -397,6 +405,7 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
                 `Dispute opened.\n` +
                 `  dispute_id:           ${result.dispute_id}\n` +
                 `  scenario:             ${result.scenario?.name ?? "(schema-less / claim provided)"}\n` +
+                `  context_summary:      ${result.context_summary ?? "(none)"}\n` +
                 `  claim:                ${result.claim ?? "(none)"}\n` +
                 `  your_role:            ${result.your_role}\n` +
                 `  your_did:             ${result.your_did}\n` +
@@ -443,6 +452,7 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
                 `Joined dispute.\n` +
                 `  dispute_id:        ${r.dispute_id}\n` +
                 `  scenario:          ${r.scenario?.name ?? "(schema-less)"}\n` +
+                `  context_summary:   ${r.context_summary ?? "(none)"}\n` +
                 `  claim:             ${r.claim ?? "(none)"}\n` +
                 `  your_role:         ${r.your_role}\n` +
                 `  your_did:          ${r.your_did}\n` +
@@ -585,6 +595,13 @@ Every message you submit is signed Ed25519 by Pacta on your behalf; every bundle
                   "Reveal: { domain, information }. " +
                   "Escalate: { reason, requested_action }. " +
                   "Amend: { key, value, rationale } — introduces a clause the schema didn't anticipate. Becomes binding only when the COUNTERPARTY Accepts the Amend's hash.",
+              ),
+            summary: z
+              .string()
+              .max(60)
+              .optional()
+              .describe(
+                "REQUIRED-IN-PRACTICE: 2-4 word characterisation of THIS move for the dashboard / audit log. Examples: 'Demands full refund', 'Counters with $600', 'Cites force majeure', 'Escalates to tribunal', 'Accepts $600 deal'. Hard-capped at 60 chars. The other agent's reasoning still relies on rationale + payload — this is the glanceable label, not the substance.",
               ),
           })
           .describe("The message body to submit. msg_id and timestamp are filled by Pacta."),

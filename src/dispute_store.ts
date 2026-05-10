@@ -38,6 +38,10 @@ function randId(prefix: string): string {
 export type OpenDisputeArgs = {
   /** Free-form description of what's being disputed. Required when scenario_id is absent. */
   claim?: string;
+  /** ~5-word headline of the case for at-a-glance dashboards and audit logs.
+   *  Optional but strongly recommended — without it, dashboards fall back to
+   *  truncating `claim` (which can be a paragraph). Hard-capped to 60 chars. */
+  context_summary?: string;
   /** Bundled scenario template id. Pre-loads its evidence + system prompts. Required if claim is absent. */
   scenario_id?: string;
   your_role: AgentRole;
@@ -49,6 +53,27 @@ export type OpenDisputeArgs = {
    *  (no remedy). Either party can always Withdraw. */
   tribunal_mode?: TribunalMode;
 };
+
+const CONTEXT_SUMMARY_MAX = 60;
+const MOVE_SUMMARY_MAX = 60;
+
+function normalizeSummary(
+  s: string | undefined | null,
+  max: number,
+): string | null {
+  if (typeof s !== "string") return null;
+  const trimmed = s.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  if (trimmed.length > max) {
+    throw new Error(
+      `summary too long: ${trimmed.length} chars (max ${max}). ` +
+        `Keep it ≤ ${max} characters — it's a glanceable label, not prose.`,
+    );
+  }
+  return trimmed;
+}
+
+export { normalizeSummary, CONTEXT_SUMMARY_MAX, MOVE_SUMMARY_MAX };
 
 /** JSON-safe view of a state schema, stripped of the runtime zod object. */
 export type StateSchemaView = {
@@ -74,6 +99,7 @@ function stateSchemaView(scenario: Scenario | null): StateSchemaView | null {
 export type OpenDisputeResult = {
   dispute_id: string;
   claim: string | null;
+  context_summary: string | null;
   scenario: Scenario | null;
   /** JSON-safe schema metadata. The joiner inspects this BEFORE claiming a
    *  role to consent to the shape of states and remedies in this dispute. */
@@ -130,6 +156,7 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
   const live: LiveDispute = {
     dispute_id,
     claim: args.claim ?? null,
+    context_summary: normalizeSummary(args.context_summary, CONTEXT_SUMMARY_MAX),
     scenario_id: scenario ? scenario.id : null,
     signed_evidence: evidence.signed,
     scenario,
@@ -156,6 +183,7 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
   return {
     dispute_id,
     claim: live.claim,
+    context_summary: live.context_summary ?? null,
     scenario,
     state_schema: stateSchemaView(scenario),
     agents: {
@@ -183,6 +211,7 @@ export async function openDispute(args: OpenDisputeArgs): Promise<OpenDisputeRes
 export type JoinDisputeResult = {
   dispute_id: string;
   claim: string | null;
+  context_summary: string | null;
   scenario: Scenario | null;
   /** State-schema metadata. By calling join_dispute the joiner CONSENTS to
    *  this schema as the contract — every Propose/CounterPropose state and the
@@ -219,6 +248,7 @@ export async function joinDispute(args: {
   return {
     dispute_id: s.dispute_id,
     claim: s.claim,
+    context_summary: s.context_summary ?? null,
     scenario: s.scenario,
     state_schema: stateSchemaView(s.scenario),
     agents: {
@@ -329,6 +359,7 @@ export async function dumpDispute(dispute_id: string) {
   return {
     dispute_id: s.dispute_id,
     claim: s.claim,
+    context_summary: s.context_summary ?? null,
     scenario_id: s.scenario_id,
     agents: {
       aria: s.agents.aria.did,
@@ -392,6 +423,7 @@ export async function openDemoDispute(args: {
   const live: LiveDispute = {
     dispute_id,
     claim: null,
+    context_summary: scenario.name ?? null,
     scenario_id: scenario.id,
     signed_evidence: evidence.signed,
     scenario,
@@ -424,6 +456,7 @@ export type DisputeSummary = {
   dispute_id: string;
   scenario_id: string | null;
   claim: string | null;
+  context_summary: string | null;
   created_at: string;
   current_round: number;
   max_rounds: number;
@@ -446,6 +479,7 @@ export async function listDisputeSummaries(): Promise<DisputeSummary[]> {
     dispute_id: s.dispute_id,
     scenario_id: s.scenario_id,
     claim: s.claim,
+    context_summary: s.context_summary ?? null,
     created_at: s.created_at,
     current_round: s.current_round,
     max_rounds: s.max_rounds,

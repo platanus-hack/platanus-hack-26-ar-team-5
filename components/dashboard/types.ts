@@ -27,6 +27,8 @@ export type DumpMessageBase = {
   timestamp: string;
   hash: string;
   ref: string;
+  /** 2-4 word characterisation of the move, set by the author. Optional. */
+  summary?: string;
 };
 
 /** A negotiation state. Shape from backend is a flat key/value object
@@ -183,6 +185,9 @@ export type DumpStateSchema = {
 export type DisputeDump = {
   dispute_id: string;
   claim: string | null;
+  /** ~5-word headline of the case. Used as the dashboard label and audit
+   *  header. Falls back to scenario name or truncated claim when null. */
+  context_summary?: string | null;
   scenario_id: string | null;
   agents: { aria: string; atlas: string; tribunal: string };
   controllers: Record<AgentRole, "external" | "claude">;
@@ -205,6 +210,7 @@ export type DisputeSummary = {
   dispute_id: string;
   scenario_id: string | null;
   claim: string | null;
+  context_summary?: string | null;
   created_at: string;
   current_round: number;
   max_rounds: number;

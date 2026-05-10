@@ -217,6 +217,19 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
   if (body.round !== state.current_round)
     return `round mismatch (got ${body.round}, expected ${state.current_round})`;
 
+  // Normalize summary: trim, collapse whitespace, length-cap. Authors can't
+  // hide an essay in the glanceable label slot.
+  if (body.summary !== undefined && body.summary !== null) {
+    const trimmed = String(body.summary).trim().replace(/\s+/g, " ");
+    if (trimmed.length > 60) {
+      return (
+        `summary too long: ${trimmed.length} chars (max 60). ` +
+        `Keep it ≤ 60 characters — it's a glanceable label, not prose.`
+      );
+    }
+    body.summary = trimmed || undefined;
+  }
+
   // Normalize references first (mutates body to canonical sha256 form).
   const normErr = normalizeRefs(state, body);
   if (normErr) return normErr;

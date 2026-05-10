@@ -232,36 +232,36 @@ function DisputeRow({
   now: number;
 }) {
   const status = statusOf(d);
+  const title =
+    (d.context_summary && d.context_summary.trim()) ||
+    (d.claim && d.claim.trim()) ||
+    d.scenario_id ||
+    "Schema-less dispute";
+  const dotCfg = STATUS[status];
   return (
     <button
       type="button"
       onClick={onClick}
       className={[
-        "group flex flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-[border-color,background-color,transform,box-shadow] duration-150 will-change-transform",
+        "group flex flex-col gap-1 rounded-md border px-3 py-2.5 text-left transition-[border-color,background-color,transform] duration-150 will-change-transform",
         selected
           ? "border-amber-glow/40 bg-graphite/80 shadow-[inset_2px_0_0_0_var(--color-amber-glow)]"
           : "border-line/70 bg-graphite/30 hover:-translate-y-px hover:border-line hover:bg-graphite/60 active:translate-y-0",
       ].join(" ")}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-caption text-polar-white">
-          {d.dispute_id.slice(0, 14)}
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotCfg.dot} ${status === "live" ? "pacta-pulse" : ""}`}
+        />
+        <span className="line-clamp-1 flex-1 text-caption text-polar-white">
+          {title}
         </span>
-        <StatusBadge status={status} />
+        <span className="shrink-0 text-caption tabular text-dim">
+          {relativeTime(d.created_at, now)}
+        </span>
       </div>
-      <div className="flex items-center justify-between gap-2 text-micro text-ash-gray">
-        <span className="truncate">{d.scenario_id ?? "schema-less"}</span>
-        <span className="font-mono text-dim tabular">{relativeTime(d.created_at, now)}</span>
-      </div>
-      <div className="flex items-center gap-3 text-micro text-dim">
-        <span>round {d.current_round}/{d.max_rounds}</span>
-        <span aria-hidden>·</span>
-        <span>{d.history_count} msg</span>
-        <span aria-hidden>·</span>
-        <span>{d.evidence_count} evd</span>
-        <span aria-hidden>·</span>
-        <ModeMicroBadge mode={d.tribunal_mode} />
-      </div>
+      <span className={`text-caption ${dotCfg.label}`}>{dotCfg.text}</span>
     </button>
   );
 }
@@ -282,66 +282,21 @@ function statusOf(d: DisputeSummary): Status {
   return "deadline";
 }
 
-function StatusBadge({ status }: { status: Status }) {
-  const cfg: Record<Status, { label: string; cls: string; dot: string }> = {
-    live: {
-      label: "live",
-      cls: "border-pulse-green/40 bg-pulse-green/10 text-pulse-green",
-      dot: "bg-pulse-green",
-    },
-    idle: {
-      label: "idle",
-      cls: "border-ash-gray/30 bg-ash-gray/10 text-ash-gray",
-      dot: "bg-ash-gray",
-    },
-    converged: {
-      label: "converged",
-      cls: "border-amber-glow/30 bg-amber-glow/10 text-amber-glow",
-      dot: "bg-amber-glow",
-    },
-    ruled: {
-      label: "ruled",
-      cls: "border-atlas/40 bg-atlas/10 text-atlas",
-      dot: "bg-atlas",
-    },
-    deadline: {
-      label: "deadline",
-      cls: "border-warn-red/40 bg-warn-red/10 text-warn-red",
-      dot: "bg-warn-red",
-    },
-    withdrawn: {
-      label: "withdrawn",
-      cls: "border-warn-red/40 bg-warn-red/10 text-warn-red",
-      dot: "bg-warn-red",
-    },
-  };
-  const c = cfg[status];
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-pill border px-2 py-0.5 text-micro tracking-[0.06em] ${c.cls}`}
-    >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${c.dot} ${status === "live" ? "pacta-pulse" : ""}`}
-      />
-      {c.label}
-    </span>
-  );
-}
-
-function ModeMicroBadge({ mode }: { mode: TribunalMode }) {
-  if (mode === "binding") {
-    return (
-      <span className="inline-flex items-center gap-1 font-mono uppercase tracking-[0.1em] text-amber-glow">
-        binding
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 font-mono uppercase tracking-[0.1em] text-warn-red">
-      no-trib
-    </span>
-  );
-}
+const STATUS: Record<
+  Status,
+  { dot: string; label: string; text: string }
+> = {
+  live: { dot: "bg-pulse-green", label: "text-pulse-green", text: "Live" },
+  idle: { dot: "bg-ash-gray", label: "text-ash-gray", text: "Idle" },
+  converged: {
+    dot: "bg-pulse-green",
+    label: "text-pulse-green",
+    text: "Converged",
+  },
+  ruled: { dot: "bg-atlas", label: "text-atlas", text: "Tribunal ruling" },
+  deadline: { dot: "bg-warn-red", label: "text-warn-red", text: "Deadline" },
+  withdrawn: { dot: "bg-warn-red", label: "text-warn-red", text: "Withdrawn" },
+};
 
 function SidebarFooter() {
   return (

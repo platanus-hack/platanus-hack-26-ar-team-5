@@ -2,6 +2,24 @@
  * Step-engine for BYO-agent disputes. Persists state via dispute_store
  * (memory-by-default, Redis-when-configured) so multi-request flows on
  * Vercel cold-start instances actually work.
+ *
+ * Protocol foundations (see docs/PROTOCOL_FOUNDATIONS.md):
+ *   - §A — Monotonic Concession Protocol + Zeuthen strategy. The compromise
+ *     bound here is computed on the SIGNED state under each scenario's
+ *     declared utility weights, not on the LLM's autoreported scalar.
+ *     Zeuthen risk index advisory is pushed via the dedicated `advisories`
+ *     channel of the LLMDriver.
+ *   - §B — SAOP / Alternating Offers. `advanceTurn` implements the round-robin
+ *     order; the primitives map: bid = Propose/CounterPropose, accept =
+ *     Accept, walk-away = Withdraw.
+ *   - §C — Single Text Procedure. `Amend` + `detectAmendmentApplications`
+ *     handles mid-flight clauses neither party anticipated; counterparty
+ *     Accept is required to apply.
+ *   - §D — Med-Arb. `tribunal_mode='binding'` + `withdrawFromDispute` routes
+ *     post-engagement Withdraw to the tribunal so the binding pre-commit
+ *     actually binds.
+ *   - §E — Heterogeneous panel. `escalateAndFinalize` defers to `jury.deliberate`
+ *     which runs 3 personas with declared biases on different models.
  */
 import { signDoc, docHash, verifySignedDoc } from "./sign";
 import { hash as hashOf, canonicalize } from "./canonical";
@@ -16,6 +34,12 @@ import {
 import { StaleVersionError } from "./storage";
 import type { MessageBody } from "./orchestrator";
 import { validateStateAgainstSchema } from "./orchestrator";
+import {
+  expectedConceder,
+  utilityFor,
+  utilityIncreases,
+  zeuthenAdvisory,
+} from "./utility";
 import {
   resolveMsgRef,
   resolveEvidenceRef,
@@ -61,6 +85,19 @@ function lastProposalUtility(history: SignedMessage[], did: string): number | un
     }
   }
   return undefined;
+}
+
+/** State-level cousin of lastProposalUtility — used by the state-derived
+ *  compromise bound and by Zeuthen risk computation. */
+function lastProposalState(history: SignedMessage[], did: string): DealState | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]!;
+    if (m.from_agent !== did) continue;
+    if (m.type === "Propose" || m.type === "CounterPropose") {
+      return (m as ProposeMsg | CounterProposeMsg).payload.state;
+    }
+  }
+  return null;
 }
 
 function hasRevealForDomain(history: SignedMessage[], did: string, domain: string): boolean {
@@ -205,9 +242,53 @@ function validateBody(state: DisputeState, role: AgentRole, body: MessageBody): 
   }
 
   if (body.type === "Propose" || body.type === "CounterPropose") {
-    const last = lastProposalUtility(state.history, agent.did);
-    if (last !== undefined && body.payload.utility_for_self - last > 1e-9)
-      return `compromise bound violated: utility_for_self=${body.payload.utility_for_self} but your previous utility was ${last}; the new value MUST be ≤ that.`;
+    // State-derived compromise bound when the scenario declares a utility_config.
+    // Falls back to autoreport check for legacy / schema-less disputes.
+    // See orchestrator.ts for the same logic + commentary; the two engines are
+    // intentionally symmetric so external (BYO) and internal (Claude-driven)
+    // negotiations enforce identical guarantees.
+    const utilityConfig = state.scenario?.utility_config;
+    if (utilityConfig) {
+      const prevState = lastProposalState(state.history, agent.did);
+      if (prevState) {
+        const u_prev = utilityFor(prevState, role, utilityConfig);
+        const u_curr = utilityFor(body.payload.state, role, utilityConfig);
+        if (u_curr - u_prev > 1e-9) {
+          const increases = utilityIncreases(
+            prevState,
+            body.payload.state,
+            role,
+            utilityConfig,
+          );
+          const lines = [
+            `compromise bound violated (state-derived utility): your derived ` +
+              `utility rose from ${u_prev.toFixed(3)} to ${u_curr.toFixed(3)} ` +
+              `(Δ=+${(u_curr - u_prev).toFixed(3)}). Your new state must be at ` +
+              `most as good for YOU as your previous offer.`,
+          ];
+          if (increases.length > 0) {
+            lines.push(`Fields where your utility went UP this turn:`);
+            for (const inc of increases.slice(0, 4)) {
+              lines.push(
+                `  - ${inc.field}: ${JSON.stringify(inc.prev)} → ${JSON.stringify(inc.curr)} ` +
+                  `(weighted Δ +${inc.delta.toFixed(3)})`,
+              );
+            }
+            lines.push(
+              `Move at least one of these fields back toward the counterparty's ` +
+                `position, or change another field to compensate. The bound is on ` +
+                `the SIGNED state under the scenario's utility weights — the ` +
+                `autoreported utility_for_self scalar is audit-only.`,
+            );
+          }
+          return lines.join("\n");
+        }
+      }
+    } else {
+      const last = lastProposalUtility(state.history, agent.did);
+      if (last !== undefined && body.payload.utility_for_self - last > 1e-9)
+        return `compromise bound violated: utility_for_self=${body.payload.utility_for_self} but your previous utility was ${last}; the new value MUST be ≤ that.`;
+    }
     // Schema validation against the scenario's declared state_schema. Only
     // enforced when the dispute has a scenario (schema-less BYO disputes
     // skip this — they don't have a declared shape).
@@ -562,6 +643,24 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
       scenario: state.scenario,
       didByRole: { aria: state.agents.aria.did, atlas: state.agents.atlas.did },
     });
+    // Zeuthen advisory: computed once at turn start and passed via the
+    // dedicated `advisories` channel so the LLM can distinguish strategic
+    // recommendations from rule-violation rejections. Only computed when
+    // both sides have proposed at least once and the scenario declares a
+    // utility_config (otherwise risk is undefined).
+    const advisories: string[] = [];
+    const utilityConfig = state.scenario?.utility_config;
+    if (utilityConfig) {
+      const ariaLast = lastProposalState(state.history, state.agents.aria.did);
+      const atlasLast = lastProposalState(state.history, state.agents.atlas.did);
+      const info = expectedConceder({
+        state_aria_last: ariaLast,
+        state_atlas_last: atlasLast,
+        config: utilityConfig,
+      });
+      if (info) advisories.push(zeuthenAdvisory(role, info));
+    }
+
     let attempt = 0;
     let accepted = false;
     while (attempt < 2 && !accepted) {
@@ -573,6 +672,7 @@ export async function advanceClaudeTurns(state: DisputeState): Promise<StepEvent
         evidence: state.evidence.signed,
         rejection_feedback:
           state.pending_feedback.length > 0 ? [...state.pending_feedback] : undefined,
+        advisories: advisories.length > 0 ? [...advisories] : undefined,
       });
       const r = applyAttempt(state, role, body, attempt);
       events.push(...r.events);

@@ -45,6 +45,7 @@ function buildUserPrompt(args: {
   evidence: SignedEvidence[];
   scenario: Scenario;
   rejection_feedback?: string[];
+  advisories?: string[];
 }): string {
   const ownEvidence = args.evidence.filter((e) => e.submitter === args.did);
   const otherEvidence = args.evidence.filter((e) => e.submitter !== args.did);
@@ -79,10 +80,24 @@ function buildUserPrompt(args: {
     for (const r of args.rejection_feedback) sections.push(`- ${r}`);
     sections.push(``);
   }
+  if (args.advisories && args.advisories.length > 0) {
+    // Advisories are NOT rejections — they're game-theoretic recommendations
+    // from the protocol's Zeuthen / Monotonic Concession engine. The agent
+    // should read them, but is free to deviate (e.g. when their private
+    // information justifies a different play).
+    sections.push(`## ℹ Strategic advisories from the protocol`);
+    for (const a of args.advisories) sections.push(`- ${a}`);
+    sections.push(``);
+  }
   sections.push(`## Instruction`);
   sections.push(`Emit exactly one message via a tool call. Pick the most strategic primitive.`);
-  sections.push(`Remember: compromise bound (utility_for_self ≤ your previous), reveal monotonicity,`);
-  sections.push(`evidence/parent refs must be exact sha256:... hashes from above.`);
+  sections.push(
+    `Remember: the compromise bound is enforced on the SIGNED state under the ` +
+      `scenario's utility weights — your derived utility must be ≤ your ` +
+      `previous derived utility. The autoreported utility_for_self scalar is ` +
+      `audit-only. Reveal monotonicity, evidence/parent refs must be exact ` +
+      `sha256:... hashes from above.`,
+  );
   return sections.join("\n");
 }
 
@@ -214,6 +229,7 @@ export function makeClaudeDriver(opts: ClaudeDriverOptions): LLMDriver {
         evidence: input.evidence,
         scenario: opts.scenario,
         rejection_feedback: input.rejection_feedback,
+        advisories: input.advisories,
       });
 
       const resp = await client.messages.create({

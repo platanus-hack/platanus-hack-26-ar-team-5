@@ -1,6 +1,6 @@
 import { docHash } from "../sign";
 import type { Scenario, ScenarioMockStep } from "./types";
-import { usdCreditSchema } from "./_schemas";
+import { usdCreditSchema, usdCreditUtilityConfig } from "./_schemas";
 
 const ARIA_SYSTEM = `You are Aria, the FinOps + Platform agent at a Series-B SaaS company (the Customer).
 
@@ -213,6 +213,15 @@ export const aiOverrun: Scenario = {
     domain: "USD-credit",
     description:
       "AI-overrun settlement state: USD credit + structural-commitment terms.",
+    cap: 250000,
+  }),
+  // Utility derivation: aria (Customer) wants high credit, atlas (Provider)
+  // wants low credit. `terms` is qualitative — kept ignored. Reservations
+  // mirror the system_prompt declarations (0.30 / 0.35).
+  utility_config: usdCreditUtilityConfig({
+    cap: 250000,
+    reservation_aria: 0.30,
+    reservation_atlas: 0.35,
   }),
   agents: {
     aria: {

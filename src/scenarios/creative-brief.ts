@@ -1,6 +1,6 @@
 import { docHash } from "../sign";
 import type { Scenario, ScenarioMockStep } from "./types";
-import { usdCreditSchema } from "./_schemas";
+import { usdCreditSchema, usdCreditUtilityConfig } from "./_schemas";
 
 /**
  * Intentionally "lax" scenario: the underlying contract is vague, evidence is
@@ -243,6 +243,17 @@ export const creativeBrief: Scenario = {
     domain: "USD-credit",
     description:
       "Creative-brief settlement state: USD payment to agency + revisions/scope terms.",
+    cap: 12000,
+  }),
+  // INVERTED utility roles vs the canonical "claimant wants high credit":
+  // Aria (Lyra = customer) does NOT want to pay → sign=-1.
+  // Atlas (Sigma = agency) DOES want full payment → sign=+1.
+  utility_config: usdCreditUtilityConfig({
+    cap: 12000,
+    aria_sign: -1,
+    atlas_sign: 1,
+    reservation_aria: 0.30,
+    reservation_atlas: 0.35,
   }),
   agents: {
     aria: {

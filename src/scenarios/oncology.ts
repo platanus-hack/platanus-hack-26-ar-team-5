@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { docHash } from "../sign";
 import { defineStateSchema } from "../state_schema";
+import type { ScenarioUtilityConfig } from "../utility";
 import type { Scenario, ScenarioMockStep } from "./types";
 
 // Oncology state schema. Unlike the USD-credit scenarios, the state here is
@@ -43,6 +44,74 @@ const oncologyStateSchema = defineStateSchema({
     },
   },
 });
+
+// Utility derivation for the oncology scenario.
+//
+// Aurora (aria) is the hospital's clinical agent: she wants the prescribed
+// upfront durvalumab plan — high coverage envelope and longer duration are
+// both "more clinical optionality for the patient". She doesn't want strict
+// stopping rules to dominate, but accepts them.
+//
+// Cobra (atlas) is the insurer: low coverage and short duration minimize
+// payout precedent + fit the PMO. More stop_rules let the insurer cap
+// exposure (each rule = an early-discontinuation trigger).
+//
+// `regimen` is a free-form string label — kept ignored. Agents express the
+// real bargaining via the numeric/array fields the orchestrator can score.
+const oncologyUtility: ScenarioUtilityConfig = {
+  aria: {
+    reservation: 0.30,
+    fields: {
+      coverage_envelope_usd: {
+        kind: "number",
+        min: 0,
+        max: 200000,
+        sign: 1,
+        weight: 0.5,
+      },
+      duration_months: {
+        kind: "number",
+        min: 0,
+        max: 12,
+        sign: 1,
+        weight: 0.4,
+      },
+      stop_rules: {
+        kind: "array_count",
+        max: 6,
+        sign: -1,
+        weight: 0.1,
+      },
+      regimen: { kind: "ignore" },
+    },
+  },
+  atlas: {
+    reservation: 0.35,
+    fields: {
+      coverage_envelope_usd: {
+        kind: "number",
+        min: 0,
+        max: 200000,
+        sign: -1,
+        weight: 0.5,
+      },
+      duration_months: {
+        kind: "number",
+        min: 0,
+        max: 12,
+        sign: -1,
+        weight: 0.4,
+      },
+      stop_rules: {
+        kind: "array_count",
+        max: 6,
+        sign: 1,
+        weight: 0.1,
+      },
+      regimen: { kind: "ignore" },
+    },
+  },
+};
 
 const AURORA_SYSTEM = `You are Aurora, the clinical authorization agent at a tertiary-care hospital. You hold the role of "Aria" in this Pacta negotiation.
 
@@ -297,6 +366,7 @@ export const oncology: Scenario = {
     "47yo non-smoker, stage IIIB NSCLC, EGFR-, PD-L1 65%. Oncologist prescribes durvalumab + chemo upfront + radio (~$80k). Insurer defaults to chemo+radio first, durva as consolidation per PACIFIC (~$15k). Convergence target: hybrid 3mo concurrent durva with stopping rules.",
   state_units: "oncology-coverage",
   state_schema: oncologyStateSchema,
+  utility_config: oncologyUtility,
   agents: {
     aria: {
       display_name: "Aurora",

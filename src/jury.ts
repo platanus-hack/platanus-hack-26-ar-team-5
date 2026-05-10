@@ -1,3 +1,18 @@
+/**
+ * Tribunal jury — 3 LLM personas with declared biases (fairness, efficiency,
+ * speed) running on different Claude models (Sonnet / Opus / Haiku).
+ *
+ * Protocol foundations (see docs/PROTOCOL_FOUNDATIONS.md §E):
+ *   - Heterogeneous panel composition is the standard in international
+ *     commercial arbitration when single-arbitrator selection is contested.
+ *   - Schema-driven aggregation (`aggregateRemedy`) per-field combines the
+ *     3 remedies under the scenario's declared strategies (median / majority
+ *     / intersect / first), so the bundle's `outcome.ruling.remedy` is
+ *     verifiably consistent with the schema.
+ *   - The panel synthesizes its own remedy rather than picking one party's
+ *     last offer (final-offer / baseball arbitration); rationale documented
+ *     in §E.
+ */
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { getClient, MODELS } from "./anthropic";

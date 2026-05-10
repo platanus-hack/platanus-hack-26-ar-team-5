@@ -21,6 +21,13 @@ import type {
 } from "./types";
 import type { Scenario } from "./scenarios/types";
 import type { StateSchemaResult } from "./state_schema";
+import {
+  expectedConceder,
+  utilityFor,
+  utilityIncreases,
+  zeuthenAdvisory,
+  type ScenarioUtilityConfig,
+} from "./utility";
 
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
 
@@ -36,6 +43,12 @@ export interface LLMDriver {
     evidence: SignedEvidence[];
     /** When non-empty, the previous attempt was rejected with these reasons. */
     rejection_feedback?: string[];
+    /** Strategic advisories pushed by the orchestrator (e.g. Zeuthen risk
+     *  recommendation). NOT rejections — the agent SHOULD read them but is
+     *  not required to follow. Surfaced in a separate prompt section so the
+     *  LLM can distinguish "you broke a rule, fix it" from "the protocol's
+     *  game-theoretic engine suggests you concede this turn". */
+    advisories?: string[];
   }): Promise<MessageBody>;
 }
 
@@ -79,6 +92,74 @@ function lastProposalUtility(history: SignedMessage[], did: string): number | un
     }
   }
   return undefined;
+}
+
+/** Look up the most recent Propose/CounterPropose state by a given DID.
+ *  Used by the state-derived compromise bound and Zeuthen risk computation. */
+function lastProposalState(history: SignedMessage[], did: string): DealState | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]!;
+    if (m.from_agent !== did) continue;
+    if (m.type === "Propose" || m.type === "CounterPropose") {
+      return (m as ProposeMsg | CounterProposeMsg).payload.state;
+    }
+  }
+  return null;
+}
+
+/** Format a state-derived compromise-bound rejection so the LLM can see
+ *  exactly which fields nudged its utility upward. The orchestrator's check
+ *  is on the SIGNED state, not on the agent's autoreported scalar — so the
+ *  rejection must be specific enough to fix. */
+function buildBoundRejection(args: {
+  role: "aria" | "atlas";
+  u_prev: number;
+  u_curr: number;
+  increases: ReturnType<typeof utilityIncreases>;
+}): string {
+  const lines = [
+    `compromise bound violated (state-derived utility): your derived utility ` +
+      `rose from ${args.u_prev.toFixed(3)} to ${args.u_curr.toFixed(3)} ` +
+      `(Δ=+${(args.u_curr - args.u_prev).toFixed(3)}). Your new state must ` +
+      `be at most as good for YOU as your previous offer.`,
+  ];
+  if (args.increases.length > 0) {
+    lines.push(`Fields where your utility went UP this turn:`);
+    for (const inc of args.increases.slice(0, 4)) {
+      lines.push(
+        `  - ${inc.field}: ${JSON.stringify(inc.prev)} → ${JSON.stringify(inc.curr)} ` +
+          `(weighted Δ +${inc.delta.toFixed(3)})`,
+      );
+    }
+    lines.push(
+      `Move at least one of these fields back toward the counterparty's ` +
+        `position, or change another field to compensate. The bound is on ` +
+        `the WIRE-LEVEL state under the scenario's signed utility weights — ` +
+        `the autoreported utility_for_self scalar is audit-only.`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** Build the Zeuthen advisory for the agent whose turn is starting. Returns
+ *  null when there's nothing to advise (no utility_config, or one or both
+ *  sides haven't proposed yet — risk index is undefined in that case). */
+function buildZeuthenAdvisory(args: {
+  role: "aria" | "atlas";
+  history: SignedMessage[];
+  ariaDid: string;
+  atlasDid: string;
+  config: ScenarioUtilityConfig;
+}): string | null {
+  const aria_last = lastProposalState(args.history, args.ariaDid);
+  const atlas_last = lastProposalState(args.history, args.atlasDid);
+  const info = expectedConceder({
+    state_aria_last: aria_last,
+    state_atlas_last: atlas_last,
+    config: args.config,
+  });
+  if (!info) return null;
+  return zeuthenAdvisory(args.role, info);
 }
 
 function hasRevealForDomain(history: SignedMessage[], did: string, domain: string): boolean {
@@ -158,6 +239,7 @@ export async function* runNegotiation(
 ): AsyncGenerator<OrchestratorEvent, RunResult, void> {
   const history: SignedMessage[] = [];
   const stateSchema = config.scenario?.state_schema;
+  const utilityConfig = config.scenario?.utility_config;
 
   // Boot events
   for (const role of ["aria", "atlas", "tribunal"] as const) {
@@ -189,6 +271,21 @@ export async function* runNegotiation(
       let attempt = 0;
       let accepted = false;
       const feedback: string[] = [];
+      // Zeuthen advisory: computed once at turn start (state hasn't changed
+      // between attempts of the same turn — only one of them gets accepted).
+      // Pushed via the dedicated `advisories` channel so the LLM can tell it
+      // apart from rule-violation rejections.
+      const advisories: string[] = [];
+      if (utilityConfig) {
+        const adv = buildZeuthenAdvisory({
+          role,
+          history,
+          ariaDid: agents.aria.did,
+          atlasDid: agents.atlas.did,
+          config: utilityConfig,
+        });
+        if (adv) advisories.push(adv);
+      }
       while (attempt < 2 && !accepted) {
         attempt++;
         const body = await driver.emit({
@@ -197,6 +294,7 @@ export async function* runNegotiation(
           history,
           evidence: evidence.signed,
           rejection_feedback: feedback.length > 0 ? [...feedback] : undefined,
+          advisories: advisories.length > 0 ? [...advisories] : undefined,
         });
 
         // Helper closures within this iteration — they capture round/role/attempt
@@ -342,20 +440,59 @@ export async function* runNegotiation(
           }
         }
 
-        // Compromise bound for Propose/CounterPropose
+        // Compromise bound for Propose/CounterPropose.
+        //
+        // Two paths:
+        //   1) State-derived (preferred — when scenario.utility_config exists).
+        //      Computes u(state) deterministically from signed weights. The
+        //      autoreported utility_for_self stays in the payload as audit-only
+        //      signal, but the BOUND is enforced on the wire-level state. This
+        //      is the rigorous Zeuthen / Monotonic Concession Protocol bound
+        //      from Rosenschein & Zlotkin (1994), see docs/PROTOCOL_FOUNDATIONS.md §A.
+        //   2) Legacy autoreport (fallback — when utility_config is absent).
+        //      Schema-less / older scenarios without a declared utility map
+        //      keep the autoreport check so existing tests / consumers don't
+        //      break. Documented in PROTOCOL_FOUNDATIONS.md as the historical
+        //      "humo" bound.
         if (body.type === "Propose" || body.type === "CounterPropose") {
-          const last = lastProposalUtility(history, agent.did);
-          if (last !== undefined && body.payload.utility_for_self - last > 1e-9) {
-            yield {
-              kind: "message.rejected",
-              round,
-              role,
-              reason: reject(
-                `compromise bound violated: utility_for_self=${body.payload.utility_for_self} but your previous utility was ${last}; the new value MUST be ≤ that.`,
-              ),
-              attempt,
-            };
-            continue;
+          if (utilityConfig) {
+            const prevState = lastProposalState(history, agent.did);
+            if (prevState) {
+              const u_prev = utilityFor(prevState, role, utilityConfig);
+              const u_curr = utilityFor(body.payload.state, role, utilityConfig);
+              if (u_curr - u_prev > 1e-9) {
+                const increases = utilityIncreases(
+                  prevState,
+                  body.payload.state,
+                  role,
+                  utilityConfig,
+                );
+                yield {
+                  kind: "message.rejected",
+                  round,
+                  role,
+                  reason: reject(
+                    buildBoundRejection({ role, u_prev, u_curr, increases }),
+                  ),
+                  attempt,
+                };
+                continue;
+              }
+            }
+          } else {
+            const last = lastProposalUtility(history, agent.did);
+            if (last !== undefined && body.payload.utility_for_self - last > 1e-9) {
+              yield {
+                kind: "message.rejected",
+                round,
+                role,
+                reason: reject(
+                  `compromise bound violated: utility_for_self=${body.payload.utility_for_self} but your previous utility was ${last}; the new value MUST be ≤ that.`,
+                ),
+                attempt,
+              };
+              continue;
+            }
           }
           // Schema validation for the proposed state.
           if (stateSchema) {

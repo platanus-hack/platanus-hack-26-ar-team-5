@@ -1,6 +1,6 @@
 import { docHash } from "../sign";
 import type { Scenario, ScenarioMockStep } from "./types";
-import { usdCreditSchema } from "./_schemas";
+import { usdCreditSchema, usdCreditUtilityConfig } from "./_schemas";
 
 /**
  * Second designed-deadlock scenario, this one targeted at the JURY, not the
@@ -235,6 +235,16 @@ export const deadlockFairuse: Scenario = {
     domain: "USD-credit",
     description:
       "Fair-use licensing settlement state: USD amount + structural commitments (opt-out, fair-use framing).",
+    cap: 20000000,
+  }),
+  // Designed deadlock: Aria (Atra = creator collective) wants high settlement
+  // → sign=+1. Atlas (Helio = AI company) wants low payment → sign=-1.
+  // Reservations are intentionally incompatible (0.50 each) so bilateral
+  // negotiation cannot close — the dispute escalates to a fragile jury split.
+  utility_config: usdCreditUtilityConfig({
+    cap: 20000000,
+    reservation_aria: 0.50,
+    reservation_atlas: 0.50,
   }),
   agents: {
     aria: {

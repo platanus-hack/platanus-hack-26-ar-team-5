@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { docHash } from "../sign";
 import { defineStateSchema } from "../state_schema";
+import type { ScenarioUtilityConfig } from "../utility";
 import type { Scenario, ScenarioMockStep } from "./types";
 
 /**
@@ -50,6 +51,78 @@ const leakStateSchema = defineStateSchema({
     },
   },
 });
+
+// Designed deadlock: each side's preferred state is the OTHER side's worst.
+// Reservations of 0.50 are intentionally incompatible — bilateral cannot close.
+//
+// timing enum order: ["immediate" .. "no-publication"], so position 0 = best
+// for Vega (publish now), position 4 = worst for Vega. Vega has sign=-1 (lower
+// position is better); Argo has sign=+1 (higher position = more delay = better).
+//
+// redactions: more redactions hurt Vega (less of the story makes it out) and
+// help Argo. Aggregated by array_count.
+//
+// corporate_review enum: ["none", "material-only", "full"]. None = newsroom
+// independence (Vega prefers); full = corporate gating (Argo prefers).
+const TIMING_ORDER = [
+  "immediate",
+  "within-7d",
+  "within-14d",
+  "after-recall",
+  "no-publication",
+];
+const REVIEW_ORDER = ["none", "material-only", "full"];
+
+const leakUtility: ScenarioUtilityConfig = {
+  aria: {
+    reservation: 0.50,
+    fields: {
+      timing: {
+        kind: "enum",
+        order: TIMING_ORDER,
+        sign: -1, // earlier publication = lower position = better for Vega
+        weight: 0.45,
+      },
+      redactions: {
+        kind: "array_count",
+        max: 5,
+        sign: -1, // fewer redactions better for Vega
+        weight: 0.30,
+      },
+      corporate_review: {
+        kind: "enum",
+        order: REVIEW_ORDER,
+        sign: -1, // "none" position 0 best for Vega
+        weight: 0.25,
+      },
+      rationale_summary: { kind: "ignore" },
+    },
+  },
+  atlas: {
+    reservation: 0.50,
+    fields: {
+      timing: {
+        kind: "enum",
+        order: TIMING_ORDER,
+        sign: 1, // later publication = higher position = better for Argo
+        weight: 0.45,
+      },
+      redactions: {
+        kind: "array_count",
+        max: 5,
+        sign: 1, // more redactions better for Argo
+        weight: 0.30,
+      },
+      corporate_review: {
+        kind: "enum",
+        order: REVIEW_ORDER,
+        sign: 1, // "full" review best for Argo
+        weight: 0.25,
+      },
+      rationale_summary: { kind: "ignore" },
+    },
+  },
+};
 
 const VEGA_SYSTEM = `You are Vega, the editorial agent at an investigative newsroom. You hold the role of "Aria" in this Pacta negotiation.
 
@@ -345,6 +418,7 @@ export const deadlockLeak: Scenario = {
     "Investigative newsroom obtained a dossier alleging systematic safety violations affecting consumer products. Corporation invokes NDA signed by 2 of 3 whistleblowers. Newsroom's reservation: must publish core safety findings now. Corporation's reservation: no publication until after voluntary recall (T+30) and only with all individuals redacted. No bilaterally acceptable middle ground.",
   state_units: "publication-terms",
   state_schema: leakStateSchema,
+  utility_config: leakUtility,
   agents: {
     aria: {
       display_name: "Vega",

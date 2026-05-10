@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { defineStateSchema, type StateSchemaResult } from "../state_schema";
+import type { ScenarioUtilityConfig } from "../utility";
 
 /** Standard USD-credit + terms-string schema, shared by 4 of the 6 bundled
  *  scenarios. The `cap` argument lets the schema enforce a per-scenario upper
@@ -41,4 +42,49 @@ export function usdCreditSchema(opts: {
       },
     },
   });
+}
+
+/** Standard utility config for USD-credit scenarios. Default convention:
+ *  aria = claimant (wants high credit, sign=+1), atlas = respondent (wants
+ *  low credit, sign=-1). Pass `aria_sign` / `atlas_sign` explicitly when the
+ *  scenario inverts roles (e.g. creative-brief: aria is the CUSTOMER who
+ *  doesn't want to pay, so aria_sign=-1).
+ *
+ *  The `terms` field is qualitative free-form prose — kept ignored in the
+ *  utility sum because it doesn't map cleanly to a [0,1] score. */
+export function usdCreditUtilityConfig(opts: {
+  cap: number;
+  aria_sign?: 1 | -1;
+  atlas_sign?: 1 | -1;
+  reservation_aria?: number;
+  reservation_atlas?: number;
+}): ScenarioUtilityConfig {
+  return {
+    aria: {
+      reservation: opts.reservation_aria ?? 0.30,
+      fields: {
+        credit_usd: {
+          kind: "number",
+          min: 0,
+          max: opts.cap,
+          sign: opts.aria_sign ?? 1,
+          weight: 1,
+        },
+        terms: { kind: "ignore" },
+      },
+    },
+    atlas: {
+      reservation: opts.reservation_atlas ?? 0.35,
+      fields: {
+        credit_usd: {
+          kind: "number",
+          min: 0,
+          max: opts.cap,
+          sign: opts.atlas_sign ?? -1,
+          weight: 1,
+        },
+        terms: { kind: "ignore" },
+      },
+    },
+  };
 }
